@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"encoding/base64"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,10 +13,14 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/src
 var assets embed.FS
+
+// globalCtx 保存应用上下文，供单实例回调使用
+var globalCtx context.Context
 
 func main() {
 	app := NewApp()
@@ -44,6 +50,14 @@ func main() {
 						http.ServeFile(w, r, filePath)
 						return
 					}
+					if strings.HasPrefix(r.URL.Path, "/media/") {
+						encoded := strings.TrimPrefix(r.URL.Path, "/media/")
+						decoded, err := base64.StdEncoding.DecodeString(encoded)
+						if err == nil {
+							http.ServeFile(w, r, string(decoded))
+							return
+						}
+					}
 					next.ServeHTTP(w, r)
 				})
 			},
@@ -65,13 +79,21 @@ func main() {
 }
 
 func getWorkspacePath() string {
-	exePath, err := os.Executable()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
-		return filepath.Join(".", "workspace")
+		exePath, exeErr := os.Executable()
+		if exeErr != nil {
+			return filepath.Join(".", "workspace")
+		}
+		return filepath.Join(filepath.Dir(exePath), "workspace")
 	}
-	return filepath.Join(filepath.Dir(exePath), "workspace")
+	return filepath.Join(configDir, "独白", "workspace")
 }
 
 func runtimeWindowShow() {
-	// This will be handled by Wails single instance lock
+	// 恢复可能最小化的窗口，并显示到前台
+	if globalCtx != nil {
+		runtime.WindowUnminimise(globalCtx)
+		runtime.WindowShow(globalCtx)
+	}
 }

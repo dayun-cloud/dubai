@@ -42,7 +42,7 @@ html, body {
 }
 
 /* 允许编辑器内文本选择 */
-#editor-content, #editor-content * {
+.ProseMirror, .ProseMirror * {
     -webkit-user-select: text;
     user-select: text;
 }
@@ -87,12 +87,24 @@ input, textarea {
     -webkit-app-region: drag;
 }
 
+/* 顶部 5px 透明条 — 为系统窗口缩放保留的 no-drag 区域 */
+.titlebar-resize-edge {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 5px;
+    -webkit-app-region: no-drag;
+    z-index: 10;
+}
+
 .titlebar-drag {
     flex: 1;
     height: 100%;
     display: flex;
     align-items: center;
     padding-left: 14px;
+    -webkit-app-region: drag;
 }
 
 .titlebar-title {
@@ -121,11 +133,12 @@ input, textarea {
     transition: background 0.15s;
 }
 
-.titlebar-btn:hover {
+/* JS 管理 hover，替代 CSS :hover — 避免最小化恢复后残留 */
+.titlebar-btn.hovered {
     background: var(--bg-hover);
 }
 
-.titlebar-btn-close:hover {
+.titlebar-btn-close.hovered {
     background: var(--danger);
     color: #fff;
 }
@@ -170,9 +183,9 @@ input, textarea {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 8px 10px;
+    padding: 4.5px 10px;
     border-bottom: 1px solid var(--border-color);
-    min-height: 42px;
+    min-height: var(--toolbar-height);
 }
 
 .sidebar-btn {
@@ -382,6 +395,55 @@ input, textarea {
     position: relative;
 }
 
+/* Tiptap / ProseMirror 基础样式 */
+.ProseMirror {
+    outline: none;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    white-space: break-spaces;
+    -webkit-user-modify: read-write-plaintext-only;
+    min-height: 100%;
+    padding-bottom: 40vh;
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--text-primary);
+    caret-color: var(--text-primary);
+}
+
+/* ProseMirror widget 装饰 - 确保原子节点旁边的光标正常 */
+.ProseMirror-widget {
+    display: inline;
+}
+
+/* 确保媒体节点旁边的光标正常显示 */
+.ProseMirror p {
+    margin: 0.5em 0;
+    line-height: 1.8;
+    min-height: 1.3em;
+}
+
+.ProseMirror > p:first-child {
+    margin-top: 0;
+}
+
+.ProseMirror > p:last-child {
+    margin-bottom: 0;
+}
+
+.ProseMirror-focused {
+    outline: none;
+}
+
+/* Tiptap placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: var(--text-muted);
+    pointer-events: none;
+    height: 0;
+}
+
+/* 编辑器空状态 */
 #editor-empty {
     position: absolute;
     top: 50%;
@@ -391,37 +453,20 @@ input, textarea {
     font-size: 15px;
 }
 
-#editor-content {
-    min-height: 100%;
-    outline: none;
-    font-size: 15px;
-    line-height: 1.8;
-    color: var(--text-primary);
-    word-wrap: break-word;
-    white-space: pre-wrap;
-    cursor: text;
-}
-
-#editor-content:empty::before {
-    content: '开始记录...';
-    color: var(--text-muted);
-    pointer-events: none;
-}
-
 /* 编辑器中的媒体元素 */
-#editor-content img {
+.ProseMirror img {
     max-width: 100%;
     border-radius: 4px;
     cursor: pointer;
     transition: filter 0.2s;
 }
 
-#editor-content img:hover {
+.ProseMirror img:hover {
     filter: brightness(0.9);
 }
 
-#editor-content .media-video-thumb,
-#editor-content .media-audio-block {
+.ProseMirror .media-video-thumb,
+.ProseMirror .media-audio-block {
     display: inline-block;
     margin: 8px 0;
     border-radius: 6px;
@@ -432,19 +477,19 @@ input, textarea {
     transition: border-color 0.15s;
 }
 
-#editor-content .media-video-thumb:hover,
-#editor-content .media-audio-block:hover {
+.ProseMirror .media-video-thumb:hover,
+.ProseMirror .media-audio-block:hover {
     border-color: var(--accent-start);
 }
 
-#editor-content .media-video-thumb video {
+.ProseMirror .media-video-thumb video {
     width: 100%;
     max-width: 480px;
     display: block;
     border-radius: 5px;
 }
 
-#editor-content .media-video-thumb .video-play-overlay {
+.ProseMirror .media-video-thumb .video-play-overlay {
     position: absolute;
     inset: 0;
     display: flex;
@@ -455,11 +500,11 @@ input, textarea {
     transition: opacity 0.2s;
 }
 
-#editor-content .media-video-thumb:hover .video-play-overlay {
+.ProseMirror .media-video-thumb:hover .video-play-overlay {
     opacity: 1;
 }
 
-#editor-content .media-audio-block {
+.ProseMirror .media-audio-block {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -467,7 +512,7 @@ input, textarea {
     min-width: 280px;
 }
 
-#editor-content .media-audio-block .audio-block-icon {
+.ProseMirror .media-audio-block .audio-block-icon {
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -478,7 +523,7 @@ input, textarea {
     flex-shrink: 0;
 }
 
-#editor-content .media-audio-block .audio-block-name {
+.ProseMirror .media-audio-block .audio-block-name {
     font-size: 13px;
     color: var(--text-secondary);
     overflow: hidden;
@@ -486,17 +531,54 @@ input, textarea {
     white-space: nowrap;
 }
 
-#editor-content hr {
+.ProseMirror hr {
     border: none;
     border-top: 1px solid var(--border-color);
     margin: 16px 0;
 }
 
-#editor-content mark {
-    background-color: rgba(102, 167, 189, 0.35);
+.ProseMirror blockquote {
+    border-left: 1px solid rgba(255,255,255,0.15);
+    padding: 4px 0 4px 16px;
+    margin: 8px 0;
+    color: var(--text-secondary);
+}
+
+.ProseMirror mark {
+    background-color: #2980b9;
     color: var(--text-primary);
     padding: 0 2px;
     border-radius: 2px;
+}
+
+.ProseMirror a {
+    color: #66a7bd;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.ProseMirror h1 {
+    font-size: 1.8em;
+    font-weight: 600;
+    margin: 0.7em 0 0.3em;
+    line-height: 1.3;
+}
+.ProseMirror h2 {
+    font-size: 1.5em;
+    font-weight: 600;
+    margin: 0.6em 0 0.25em;
+    line-height: 1.35;
+}
+.ProseMirror h3 {
+    font-size: 1.25em;
+    font-weight: 600;
+    margin: 0.5em 0 0.2em;
+    line-height: 1.4;
+}
+
+.ProseMirror strong {
+    color: #e8e8e8;
+    font-weight: 700;
 }
 
 /* 占位元素样式 */
@@ -769,7 +851,8 @@ input, textarea {
 /* ============================================================
    重命名对话框
    ============================================================ */
-#rename-overlay {
+#rename-overlay,
+#link-overlay {
     position: fixed;
     inset: 0;
     z-index: 2500;
@@ -914,28 +997,66 @@ input, textarea {
    ============================================================ */
 .resizable-image {
     display: inline-block;
-    resize: both;
-    overflow: hidden;
+    position: relative;
     max-width: 100%;
-    min-width: 40px;
-    min-height: 40px;
-    vertical-align: top;
+    min-width: 60px;
+    vertical-align: middle;
     border-radius: 4px;
+    cursor: default;
 }
 
 .resizable-image img {
     display: block;
     width: 100%;
-    height: 100%;
+    height: auto;
     object-fit: contain;
     pointer-events: auto;
     cursor: pointer;
     border-radius: 4px;
 }
 
-.resizable-image::-webkit-resizer {
-    border-width: 6px;
-    border-color: transparent var(--accent-start) var(--accent-start) transparent;
+/* 图片底部文件名标签（小图时显示） */
+.resizable-image-label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 2px 4px;
+    font-size: 11px;
+    line-height: 1.3;
+    color: #fff;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: linear-gradient(transparent, rgba(0,0,0,0.55));
+    border-radius: 0 0 4px 4px;
+    pointer-events: none;
+}
+
+/* 自定义缩放手柄 - 右下角拖拽指示器 */
+.resizable-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    height: 18px;
+    cursor: ew-resize;
+    touch-action: none;
+    z-index: 2;
+    /* 渐变三角指示器 */
+    background:
+        linear-gradient(135deg, transparent 40%, rgba(128,128,128,0.3) 40%, rgba(128,128,128,0.3) 60%, transparent 60%),
+        linear-gradient(135deg, transparent 55%, rgba(128,128,128,0.25) 55%, rgba(128,128,128,0.25) 75%, transparent 75%),
+        linear-gradient(135deg, transparent 70%, rgba(128,128,128,0.2) 70%);
+    border-radius: 0 0 4px 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.resizable-image:hover .resizable-handle,
+.resizable-image.is-selected .resizable-handle {
+    opacity: 1;
 }
 
 /* 内联视频播放 */
@@ -955,7 +1076,8 @@ input, textarea {
     border: 1px solid var(--border-color);
     overflow: hidden;
     cursor: pointer;
-    max-width: 480px;
+    min-width: 200px;
+    max-width: 100%;
 }
 
 .editor-video-placeholder video {
@@ -1020,7 +1142,7 @@ input, textarea {
    ============================================================ */
 .notification {
     position: fixed;
-    top: 50px;
+    top: 80px;
     left: 50%;
     transform: translateX(-50%);
     padding: 10px 24px;

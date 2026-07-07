@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -41,9 +42,8 @@ func NewApp() *App {
 // startup is called at application startup
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	a.workspacePath = filepath.Join(exeDir, "workspace")
+	globalCtx = ctx
+	a.workspacePath = getWorkspacePath()
 	os.MkdirAll(a.workspacePath, 0755)
 }
 
@@ -82,6 +82,10 @@ func (a *App) readDir(absPath string, relBase string) []FileNode {
 		if strings.HasPrefix(name, ".") || strings.HasSuffix(name, "_media") {
 			continue
 		}
+		// 非目录文件只显示 .md
+		if !entry.IsDir() && !strings.HasSuffix(name, ".md") {
+			continue
+		}
 
 		abs := filepath.Join(absPath, name)
 		rel := filepath.Join(relBase, name)
@@ -102,6 +106,14 @@ func (a *App) readDir(absPath string, relBase string) []FileNode {
 		}
 		nodes = append(nodes, node)
 	}
+
+	// 排序：文件夹在前，文件在后，同类按名称排序
+	sort.Slice(nodes, func(i, j int) bool {
+		if nodes[i].IsDir != nodes[j].IsDir {
+			return nodes[i].IsDir
+		}
+		return strings.ToLower(nodes[i].Name) < strings.ToLower(nodes[j].Name)
+	})
 
 	if nodes == nil {
 		nodes = []FileNode{}
@@ -142,58 +154,16 @@ func (a *App) RenameEntry(relPath string, newName string) error {
 	oldPath := filepath.Join(a.workspacePath, relPath)
 	dir := filepath.Dir(oldPath)
 	newPath := filepath.Join(dir, newName)
-
-	// 如果是 .md 文件，同时重命名对应的 _media 文件夹
-	if !strings.HasSuffix(relPath, ".md") {
-		// 检查是否是文件夹，如果是则跳过 media 重命名逻辑
-		info, err := os.Stat(oldPath)
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return os.Rename(oldPath, newPath)
-		}
-	} else {
-		// 处理 .md 文件的 media 目录
-		oldBase := strings.TrimSuffix(filepath.Base(oldPath), ".md")
-		newBase := strings.TrimSuffix(newName, ".md")
-		oldMediaDir := filepath.Join(dir, oldBase+"_media")
-		newMediaDir := filepath.Join(dir, newBase+"_media")
-		if _, err := os.Stat(oldMediaDir); err == nil {
-			os.Rename(oldMediaDir, newMediaDir)
-		}
-	}
-
 	return os.Rename(oldPath, newPath)
 }
 
-// DeleteEntry 删除文件或文件夹（附带 media 目录）
+// DeleteEntry 删除文件或文件夹
 func (a *App) DeleteEntry(relPath string) error {
 	absPath := filepath.Join(a.workspacePath, relPath)
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return err
-	}
-
-	if info.IsDir() {
-		// 删除文件夹前先确认内容（前端已确认）
-		return os.RemoveAll(absPath)
-	}
-
-	// 删除 .md 文件时，同时删除对应的 _media 文件夹
-	if strings.HasSuffix(relPath, ".md") {
-		base := strings.TrimSuffix(filepath.Base(absPath), ".md")
-		mediaDir := filepath.Join(filepath.Dir(absPath), base+"_media")
-		if _, err := os.Stat(mediaDir); err == nil {
-			os.RemoveAll(mediaDir)
-		}
-	}
-
-	return os.Remove(absPath)
+	return os.RemoveAll(absPath)
 }
 
-// MoveEntry 移动文件或文件夹到目标目录
+// MoveEntry 移动文件或文件夹到目标目录（媒体文件已在 _media/ 集中管理，无需跟随移动）
 // destDirRel: 目标文件夹的相对路径, "" 表示根目录
 func (a *App) MoveEntry(srcRelPath string, destDirRel string) error {
 	srcAbs := filepath.Join(a.workspacePath, srcRelPath)
@@ -204,19 +174,6 @@ func (a *App) MoveEntry(srcRelPath string, destDirRel string) error {
 
 	baseName := filepath.Base(srcAbs)
 	destAbs := filepath.Join(destDirAbs, baseName)
-
-	// 移动 .md 文件时同时移动 _media 目录
-	if strings.HasSuffix(srcRelPath, ".md") {
-		srcBase := strings.TrimSuffix(filepath.Base(srcAbs), ".md")
-		srcMediaDir := filepath.Join(filepath.Dir(srcAbs), srcBase+"_media")
-		if _, err := os.Stat(srcMediaDir); err == nil {
-			destMediaDir := filepath.Join(destDirAbs, srcBase+"_media")
-			// 先移动 media 目录
-			if err := os.Rename(srcMediaDir, destMediaDir); err != nil {
-				return err
-			}
-		}
-	}
 
 	return os.Rename(srcAbs, destAbs)
 }
@@ -269,17 +226,7 @@ func (a *App) SaveNote(relPath string, content string) error {
 // 媒体文件处理
 // ============================================================
 
-// getMediaDir 获取笔记对应的 media 目录，如果不存在则创建
-func (a *App) getMediaDir(noteRelPath string) string {
-	noteAbs := filepath.Join(a.workspacePath, noteRelPath)
-	base := strings.TrimSuffix(filepath.Base(noteAbs), ".md")
-	mediaDir := filepath.Join(filepath.Dir(noteAbs), base+"_media")
-	os.MkdirAll(mediaDir, 0755)
-	return mediaDir
-}
-
-// ImportMedia 打开文件对话框选择媒体文件并复制到笔记的 media 目录
-// 返回 media 文件的相对 URL 路径
+// ImportMedia 打开文件对话框选择媒体文件，直接返回原始路径（不复制）
 func (a *App) ImportMedia(noteRelPath string, mediaType string) (*MediaInfo, error) {
 	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "选择文件",
@@ -297,56 +244,19 @@ func (a *App) ImportMedia(noteRelPath string, mediaType string) (*MediaInfo, err
 		return nil, nil
 	}
 
-	return a.copyMediaFile(filePath, noteRelPath)
-}
-
-// ImportMediaFromPath 从指定路径导入媒体文件
-func (a *App) ImportMediaFromPath(sourcePath string, noteRelPath string) (*MediaInfo, error) {
-	return a.copyMediaFile(sourcePath, noteRelPath)
-}
-
-func (a *App) copyMediaFile(sourcePath string, noteRelPath string) (*MediaInfo, error) {
-	mediaDir := a.getMediaDir(noteRelPath)
-
-	fileName := filepath.Base(sourcePath)
-	// 处理文件名冲突
-	destPath := filepath.Join(mediaDir, fileName)
-	counter := 1
-	for {
-		if _, e := os.Stat(destPath); os.IsNotExist(e) {
-			break
-		}
-		ext := filepath.Ext(fileName)
-		base := strings.TrimSuffix(fileName, ext)
-		fileName = fmt.Sprintf("%s_%d%s", base, counter, ext)
-		destPath = filepath.Join(mediaDir, fileName)
-		counter++
-	}
-
-	// 复制文件
-	srcFile, err := os.Open(sourcePath)
-	if err != nil {
-		return nil, err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(destPath)
-	if err != nil {
-		return nil, err
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return nil, err
-	}
-
-	// 计算相对于 workspace 的路径，用于 HTTP 访问
-	noteAbs := filepath.Join(a.workspacePath, noteRelPath)
-	baseName := strings.TrimSuffix(filepath.Base(noteAbs), ".md")
-	relToWorkspace := filepath.Join(filepath.Dir(noteRelPath), baseName+"_media", fileName)
-
+	fileName := filepath.Base(filePath)
 	return &MediaInfo{
-		RelPath:  relToWorkspace,
+		RelPath:  filePath,
+		FileName: fileName,
+		MimeType: getMimeType(fileName),
+	}, nil
+}
+
+// ImportMediaFromPath 从指定路径导入媒体文件（直接引用，不复制）
+func (a *App) ImportMediaFromPath(sourcePath string, noteRelPath string) (*MediaInfo, error) {
+	fileName := filepath.Base(sourcePath)
+	return &MediaInfo{
+		RelPath:  sourcePath,
 		FileName: fileName,
 		MimeType: getMimeType(fileName),
 	}, nil
