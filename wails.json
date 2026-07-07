@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "独白",
+  "outputfilename": "独白",
+  "wailsjsdir": "./frontend",
+  "author": {
+    "name": "dayun",
+    "email": "dayuncloud@qq.com"
+  },
+  "info": {
+    "companyName": "dayun",
+    "productName": "独白",
+    "productVersion": "1.0.0",
+    "copyright": "© 2026 大沄"
+  }
+}
