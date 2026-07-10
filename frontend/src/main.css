@@ -557,6 +557,28 @@ input, textarea {
     cursor: pointer;
 }
 
+/* 黑幕效果 */
+.ProseMirror .spoiler {
+    background: #555555;
+    color: transparent;
+    border-radius: 3px;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.ProseMirror .spoiler * {
+    color: transparent !important;
+}
+.ProseMirror .spoiler:hover,
+.ProseMirror .spoiler.reveal {
+    background: rgba(102, 167, 189, 0.15);
+    color: var(--text-primary);
+}
+.ProseMirror .spoiler:hover *,
+.ProseMirror .spoiler.reveal * {
+    color: inherit !important;
+}
+
 .ProseMirror h1 {
     font-size: 1.8em;
     font-weight: 600;

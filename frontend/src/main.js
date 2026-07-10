@@ -3,7 +3,7 @@
 // ============================================================
 
 // Tiptap 来自 tiptap-bundle.js (IIFE)
-const { Editor, Node, StarterKit, ImageExtension, Underline, Highlight, Link } = window.TiptapBundle;
+const { Editor, Node, Mark, StarterKit, ImageExtension, Underline, Highlight, Link } = window.TiptapBundle;
 
 // ============================================================
 // 自定义 Tiptap 扩展
@@ -260,6 +260,24 @@ const AudioNode = Node.create({
     },
 });
 
+// 黑幕标记（Spoiler）
+const Spoiler = Mark.create({
+    name: 'spoiler',
+    parseHTML() {
+        return [{ tag: 'span.spoiler' }];
+    },
+    renderHTML({ HTMLAttributes }) {
+        return ['span', { class: 'spoiler' }, 0];
+    },
+    addCommands() {
+        return {
+            toggleSpoiler: () => ({ commands }) => {
+                return commands.toggleMark(this.name);
+            },
+        };
+    },
+});
+
 // ============================================================
 // 全局状态
 // ============================================================
@@ -438,6 +456,7 @@ function initEditor() {
             ResizableImage,
             VideoNode,
             AudioNode,
+            Spoiler,
         ],
         content: '',
         editable: true,
@@ -1033,6 +1052,7 @@ $$('.format-btn').forEach(btn => {
             case 'underline': chain.toggleUnderline().run(); break;
             case 'strikeThrough': chain.toggleStrike().run(); break;
             case 'highlight': chain.toggleHighlight().run(); break;
+            case 'spoiler': chain.toggleSpoiler().run(); break;
             case 'heading1': chain.toggleHeading({ level: 1 }).run(); break;
             case 'heading2': chain.toggleHeading({ level: 2 }).run(); break;
             case 'heading3': chain.toggleHeading({ level: 3 }).run(); break;
@@ -1064,6 +1084,7 @@ function updateFormatButtonStates() {
             case 'underline': active = ed.isActive('underline'); break;
             case 'strikeThrough': active = ed.isActive('strike'); break;
             case 'highlight': active = ed.isActive('highlight'); break;
+            case 'spoiler': active = ed.isActive('spoiler'); break;
             case 'heading1': active = ed.isActive('heading', { level: 1 }); break;
             case 'heading2': active = ed.isActive('heading', { level: 2 }); break;
             case 'heading3': active = ed.isActive('heading', { level: 3 }); break;

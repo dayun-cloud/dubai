@@ -26,6 +26,7 @@ var TiptapBundle = (() => {
     Highlight: () => Highlight,
     ImageExtension: () => Image,
     Link: () => Link,
+    Mark: () => Mark2,
     Node: () => Node2,
     StarterKit: () => StarterKit,
     Underline: () => Underline
