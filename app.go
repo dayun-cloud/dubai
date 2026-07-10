@@ -45,6 +45,7 @@ func (a *App) startup(ctx context.Context) {
 	globalCtx = ctx
 	a.workspacePath = getWorkspacePath()
 	os.MkdirAll(a.workspacePath, 0755)
+	os.MkdirAll(filepath.Join(a.workspacePath, "_media"), 0755)
 }
 
 // domReady is called after front-end resources have been loaded
@@ -226,7 +227,7 @@ func (a *App) SaveNote(relPath string, content string) error {
 // 媒体文件处理
 // ============================================================
 
-// ImportMedia 打开文件对话框选择媒体文件，直接返回原始路径（不复制）
+// ImportMedia 打开文件对话框选择媒体文件，复制到 _media 目录
 func (a *App) ImportMedia(noteRelPath string, mediaType string) (*MediaInfo, error) {
 	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "选择文件",
@@ -244,22 +245,81 @@ func (a *App) ImportMedia(noteRelPath string, mediaType string) (*MediaInfo, err
 		return nil, nil
 	}
 
-	fileName := filepath.Base(filePath)
+	origName := filepath.Base(filePath)
+	storedName, err := a.copyToMedia(filePath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MediaInfo{
-		RelPath:  filePath,
-		FileName: fileName,
-		MimeType: getMimeType(fileName),
+		RelPath:  storedName,
+		FileName: origName,
+		MimeType: getMimeType(origName),
 	}, nil
 }
 
-// ImportMediaFromPath 从指定路径导入媒体文件（直接引用，不复制）
+// ImportMediaFromPath 从指定路径导入媒体文件，复制到 _media 目录
 func (a *App) ImportMediaFromPath(sourcePath string, noteRelPath string) (*MediaInfo, error) {
-	fileName := filepath.Base(sourcePath)
+	origName := filepath.Base(sourcePath)
+	storedName, err := a.copyToMedia(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &MediaInfo{
-		RelPath:  sourcePath,
-		FileName: fileName,
-		MimeType: getMimeType(fileName),
+		RelPath:  storedName,
+		FileName: origName,
+		MimeType: getMimeType(origName),
 	}, nil
+}
+
+// copyToMedia 将文件复制到 _media 目录，返回存储后的文件名
+// 如果文件已在 _media 目录中则不复制，直接返回原文件名
+func (a *App) copyToMedia(sourcePath string) (string, error) {
+	mediaDir := filepath.Join(a.workspacePath, "_media")
+	os.MkdirAll(mediaDir, 0755)
+
+	origName := filepath.Base(sourcePath)
+	mediaPath := filepath.Join(mediaDir, origName)
+
+	// 检查文件是否已在 _media 目录中
+	sourceAbs, _ := filepath.Abs(sourcePath)
+	mediaAbs, _ := filepath.Abs(mediaPath)
+	if sourceAbs == mediaAbs {
+		return origName, nil
+	}
+
+	// 处理同名文件：追加 _1, _2 等后缀
+	destPath := mediaPath
+	ext := filepath.Ext(origName)
+	base := origName[:len(origName)-len(ext)]
+	counter := 1
+	for {
+		if _, err := os.Stat(destPath); os.IsNotExist(err) {
+			break
+		}
+		destPath = filepath.Join(mediaDir, fmt.Sprintf("%s_%d%s", base, counter, ext))
+		counter++
+	}
+
+	// 复制文件
+	src, err := os.Open(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return "", err
+	}
+
+	return filepath.Base(destPath), nil
 }
 
 // ImportMarkdownFile 导入外部 .md 文件

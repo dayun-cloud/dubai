@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"encoding/base64"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -51,12 +50,9 @@ func main() {
 						return
 					}
 					if strings.HasPrefix(r.URL.Path, "/media/") {
-						encoded := strings.TrimPrefix(r.URL.Path, "/media/")
-						decoded, err := base64.StdEncoding.DecodeString(encoded)
-						if err == nil {
-							http.ServeFile(w, r, string(decoded))
-							return
-						}
+						fileName := strings.TrimPrefix(r.URL.Path, "/media/")
+						http.ServeFile(w, r, filepath.Join(workspacePath, "_media", fileName))
+						return
 					}
 					next.ServeHTTP(w, r)
 				})

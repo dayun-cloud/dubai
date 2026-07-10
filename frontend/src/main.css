@@ -603,6 +603,19 @@ input, textarea {
     font-weight: 700;
 }
 
+.ProseMirror em {
+    color: #aaaaaa;
+    font-style: italic;
+}
+
+.ProseMirror s {
+    text-decoration-color: #f1c40f;
+}
+
+.ProseMirror u {
+    text-underline-offset: 3px;
+}
+
 /* 占位元素样式 */
 .placeholder-element {
     display: inline-block;

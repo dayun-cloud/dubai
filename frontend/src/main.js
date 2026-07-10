@@ -142,7 +142,7 @@ const VideoNode = Node.create({
             video.src = node.attrs.src;
             video.preload = 'metadata';
             video.controls = true;
-            video.volume = 0.5;
+            video.volume = 0.1;
 
             dom.appendChild(video);
 
@@ -347,9 +347,7 @@ function formatTime(seconds) {
 }
 
 function makeMediaUrl(filePath) {
-    const bytes = new TextEncoder().encode(filePath);
-    const binary = Array.from(bytes, b => String.fromCharCode(b)).join('');
-    return '/media/' + btoa(binary);
+    return '/media/' + filePath;
 }
 
 function notify(msg, type = 'success') {
@@ -821,7 +819,7 @@ $('.image-viewer-bg').addEventListener('click', closeImageViewer);
 // ============================================================
 function openVideoPlayer(src) {
     el.videoPlayerEl.src = src;
-    el.videoPlayerEl.volume = 0.5;
+    el.videoPlayerEl.volume = 0.1;
     el.videoPlayer.style.display = '';
     el.videoPlayerEl.play();
 }
