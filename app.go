@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -398,6 +399,181 @@ func (a *App) GetWorkspacePath() string {
 // OpenExternalLink 用系统默认浏览器打开链接
 func (a *App) OpenExternalLink(url string) {
 	runtime.BrowserOpenURL(a.ctx, url)
+}
+
+// ============================================================
+// 搜索
+// ============================================================
+
+// SearchNoteResult 搜索结果
+type SearchNoteResult struct {
+	RelPath    string `json:"relPath"`    // 相对于 workspace 的路径
+	Context    string `json:"context"`    // 匹配上下文
+	MatchStart int    `json:"matchStart"` // 关键词在 context 中的起始位置（字符数）
+	MatchLen   int    `json:"matchLen"`   // 关键词字符长度
+	MatchIndex int    `json:"matchIndex"` // 该文件中第几个匹配 (0-based)
+}
+
+// SearchNotes 在所有笔记中搜索关键词
+func (a *App) SearchNotes(keyword string) ([]SearchNoteResult, error) {
+	if keyword == "" {
+		return nil, nil
+	}
+	kw := strings.ToLower(keyword)
+	var results []SearchNoteResult
+
+	err := filepath.Walk(a.workspacePath, func(absPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+			return nil
+		}
+		relPath, _ := filepath.Rel(a.workspacePath, absPath)
+		if strings.HasPrefix(relPath, "_media") {
+			return nil
+		}
+
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil
+		}
+
+		plainText := extractPlainText(string(data))
+		lowerText := strings.ToLower(plainText)
+		if !strings.Contains(lowerText, kw) {
+			return nil
+		}
+
+		// 基于 rune 查找所有匹配位置
+		sourceRunes := []rune(plainText)
+		lowerRunes := []rune(lowerText)
+		kwRunes := []rune(kw)
+		kwLen := len(kwRunes)
+
+		var matchPositions []int
+		for i := 0; i <= len(lowerRunes)-kwLen; i++ {
+			match := true
+			for j := 0; j < kwLen; j++ {
+				if lowerRunes[i+j] != kwRunes[j] {
+					match = false
+					break
+				}
+			}
+			if match {
+				matchPositions = append(matchPositions, i)
+				i += kwLen - 1 // 跳过本次匹配
+			}
+		}
+
+		// 为每个匹配生成结果
+		for idx, runeIdx := range matchPositions {
+			ctxStart := runeIdx - 18
+			if ctxStart < 0 {
+				ctxStart = 0
+			}
+			ctxEnd := runeIdx + kwLen + 18
+			if ctxEnd > len(sourceRunes) {
+				ctxEnd = len(sourceRunes)
+			}
+
+			snippet := ""
+			if ctxStart > 0 {
+				snippet += "..."
+			}
+			snippet += string(sourceRunes[ctxStart:ctxEnd])
+			if ctxEnd < len(sourceRunes) {
+				snippet += "..."
+			}
+
+			matchStart := runeIdx - ctxStart
+			if ctxStart > 0 {
+				matchStart += 3 // "..." 的字符数
+			}
+
+			results = append(results, SearchNoteResult{
+				RelPath:    filepath.ToSlash(relPath),
+				Context:    snippet,
+				MatchStart: matchStart,
+				MatchLen:   kwLen,
+				MatchIndex: idx,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// extractPlainText 从 Tiptap JSON 中提取纯文本和媒体文件名
+func extractPlainText(content string) string {
+	var doc map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+		// 不是 JSON 格式，直接返回原始内容（兼容纯文本/markdown）
+		return content
+	}
+
+	var texts []string
+	extractTextFromNode(doc, &texts)
+	return strings.Join(texts, "")
+}
+
+func extractTextFromNode(node map[string]interface{}, texts *[]string) {
+	if node == nil {
+		return
+	}
+
+	// 文本节点
+	if t, ok := node["text"]; ok {
+		if s, ok := t.(string); ok {
+			*texts = append(*texts, s)
+		}
+	}
+
+	// 媒体节点：提取文件名
+	if t, ok := node["type"]; ok {
+		typeStr, _ := t.(string)
+		if typeStr == "resizableImage" || typeStr == "videoNode" || typeStr == "audioNode" {
+			if attrs, ok := node["attrs"]; ok {
+				attrsMap, _ := attrs.(map[string]interface{})
+				if src, ok := attrsMap["src"]; ok {
+					srcStr, _ := src.(string)
+					if srcStr != "" {
+						fileName := filepath.Base(srcStr)
+						*texts = append(*texts, "["+fileName+"]")
+					}
+				}
+			}
+		}
+	}
+
+	// 递归处理子节点
+	if content, ok := node["content"]; ok {
+		if arr, ok := content.([]interface{}); ok {
+			for _, item := range arr {
+				if m, ok := item.(map[string]interface{}); ok {
+					extractTextFromNode(m, texts)
+				}
+			}
+		}
+	}
+
+	// 处理 marks（如链接文本等）
+	if marks, ok := node["marks"]; ok {
+		if arr, ok := marks.([]interface{}); ok {
+			for _, item := range arr {
+				if m, ok := item.(map[string]interface{}); ok {
+					if href, ok := m["href"]; ok {
+						if s, ok := href.(string); ok {
+							*texts = append(*texts, " "+s)
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 // ============================================================

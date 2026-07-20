@@ -111,9 +111,24 @@
             <button class="format-btn" id="btn-insert-audio" title="插入音频">
                 <svg width="16" height="16" viewBox="0 0 25 25" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
             </button>
+            <button class="format-btn toolbar-search-btn" id="btn-search" title="搜索笔记 Ctrl+F">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+            </button>
         </div>
 
-        <!-- 编辑器内容区 -->
+        <!-- 搜索面板 -->
+        <div id="search-panel" style="display:none">
+            <div class="search-input-row">
+                <svg class="search-input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+                <input type="text" id="search-input" placeholder="搜索笔记内容..."/>
+                <button id="btn-search-close" class="search-close-btn" title="关闭">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+                </button>
+            </div>
+            <div id="search-results"></div>
+        </div>
+
+        <!-- 编辑器主区域 -->
         <div id="editor-wrapper">
             <div id="editor-empty">选择或创建一个笔记开始记录</div>
             <!-- Tiptap Editor Container -->

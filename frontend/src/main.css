@@ -1202,3 +1202,116 @@ input, textarea {
     background: rgba(102, 167, 189, 0.9);
     color: #fff;
 }
+
+/* ============================================================
+   搜索面板
+   ============================================================ */
+.toolbar-search-btn {
+    margin-left: auto;
+}
+
+#search-panel {
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.search-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.search-input-icon {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+#search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+#search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.search-close-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.search-close-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+#search-results {
+    padding: 4px 0;
+}
+
+.search-result-item {
+    display: flex;
+    gap: 12px;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background 0.1s;
+    align-items: flex-start;
+}
+
+.search-result-item:hover {
+    background: var(--bg-hover);
+}
+
+.search-result-path {
+    color: var(--accent-start);
+    font-size: 12px;
+    white-space: nowrap;
+    padding-top: 1px;
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-result-context {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.search-highlight {
+    background: rgba(102, 167, 189, 0.35);
+    color: #e0e0e0;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.search-no-results {
+    padding: 16px 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+}

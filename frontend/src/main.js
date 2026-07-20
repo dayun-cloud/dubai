@@ -333,6 +333,9 @@ const el = {
     confirmCancel: $('#confirm-cancel'),
     linkOverlay: $('#link-overlay'),
     linkInput: $('#link-input'),
+    searchPanel: $('#search-panel'),
+    searchInput: $('#search-input'),
+    searchResults: $('#search-results'),
 };
 
 // ============================================================
@@ -995,6 +998,142 @@ el.linkInput.addEventListener('keydown', (e) => {
 el.linkOverlay.addEventListener('click', (e) => { if (e.target === el.linkOverlay) hideLinkDialog(); });
 
 // ============================================================
+// 搜索面板
+// ============================================================
+let searchTimer = null;
+let lastSearchKeyword = '';
+
+function openSearchPanel() {
+    el.searchPanel.style.display = '';
+    el.searchInput.value = '';
+    el.searchResults.innerHTML = '';
+    lastSearchKeyword = '';
+    el.searchInput.focus();
+}
+
+function closeSearchPanel() {
+    el.searchPanel.style.display = 'none';
+    el.searchInput.value = '';
+    el.searchResults.innerHTML = '';
+    lastSearchKeyword = '';
+    if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+}
+
+async function doSearch(keyword) {
+    if (!keyword.trim()) {
+        el.searchResults.innerHTML = '';
+        return;
+    }
+    lastSearchKeyword = keyword;
+    try {
+        const results = await App.SearchNotes(keyword.trim());
+        if (results && results.length > 0) {
+            el.searchResults.innerHTML = results.map(r => {
+                const displayPath = r.relPath.endsWith('.md')
+                    ? r.relPath.slice(0, -3).replace(/\\/g, ' / ')
+                    : r.relPath;
+                // 高亮关键词
+                const ctx = escapeHtml(r.context);
+                const matchStart = r.matchStart || 0;
+                const matchLen = r.matchLen || 0;
+                let highlighted = ctx;
+                if (matchLen > 0 && matchStart + matchLen <= ctx.length) {
+                    const before = ctx.slice(0, matchStart);
+                    const match = ctx.slice(matchStart, matchStart + matchLen);
+                    const after = ctx.slice(matchStart + matchLen);
+                    highlighted = before + '<mark class="search-highlight">' + match + '</mark>' + after;
+                }
+                return `<div class="search-result-item" data-path="${escapeHtml(r.relPath)}" data-match-index="${r.matchIndex || 0}">
+                    <span class="search-result-path">${escapeHtml(displayPath)}</span>
+                    <span class="search-result-context">${highlighted}</span>
+                </div>`;
+            }).join('');
+            // 点击结果打开对应笔记并跳转到匹配位置
+            el.searchResults.querySelectorAll('.search-result-item').forEach(item => {
+                item.addEventListener('click', async () => {
+                    const relPath = item.dataset.path;
+                    const matchIndex = parseInt(item.dataset.matchIndex) || 0;
+                    const name = relPath.split(/[\\/]/).pop();
+                    await openNote(relPath, name);
+                    // 等待渲染后滚动，最后再关闭面板（避免布局变化干扰）
+                    setTimeout(() => {
+                        for (let i = 0; i < 3; i++) requestAnimationFrame(() => {});
+                        requestAnimationFrame(() => {
+                            scrollToKeyword(lastSearchKeyword, matchIndex);
+                            closeSearchPanel();
+                        });
+                    }, 300);
+                });
+            });
+        } else {
+            el.searchResults.innerHTML = '<div class="search-no-results">无匹配结果</div>';
+        }
+    } catch (err) {
+        console.error('搜索失败:', err);
+        el.searchResults.innerHTML = '<div class="search-no-results">搜索出错</div>';
+    }
+}
+
+function scrollToKeyword(keyword, matchIndex = 0) {
+    if (!state.editor || !keyword) return;
+    const kw = keyword.toLowerCase();
+
+    // 用 TreeWalker 在 DOM 中定位关键词（精确到像素）
+    const editorDom = document.querySelector('.ProseMirror');
+    if (!editorDom) return;
+
+    let nth = 0;
+    const walker = document.createTreeWalker(editorDom, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while (textNode = walker.nextNode()) {
+        const text = textNode.textContent;
+        let localIdx = 0;
+        while (localIdx <= text.length - keyword.length) {
+            if (text.slice(localIdx, localIdx + keyword.length).toLowerCase() === kw) {
+                if (nth === matchIndex) {
+                    // 创建 Range 获取精确屏幕坐标
+                    const range = document.createRange();
+                    range.setStart(textNode, localIdx);
+                    range.setEnd(textNode, localIdx + keyword.length);
+                    const rect = range.getBoundingClientRect();
+
+                    const wrapper = el.editorWrapper;
+                    const wrapperTop = wrapper.getBoundingClientRect().top;
+                    const targetScroll = wrapper.scrollTop + rect.top - wrapperTop - 150;
+                    wrapper.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+                    return;
+                }
+                nth++;
+                localIdx += keyword.length;
+            } else {
+                localIdx++;
+            }
+        }
+    }
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 搜索按钮
+$('#btn-search').addEventListener('click', openSearchPanel);
+
+// 关闭按钮
+$('#btn-search-close').addEventListener('click', closeSearchPanel);
+
+// 输入时防抖搜索
+el.searchInput.addEventListener('input', () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => doSearch(el.searchInput.value), 300);
+});
+
+// Escape 关闭搜索面板
+el.searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSearchPanel();
+});
+
+// ============================================================
 // 编辑器工具栏
 // ============================================================
 
@@ -1104,6 +1243,11 @@ document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
         saveCurrentNote().then(() => notify('已保存'));
+    }
+    if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        openSearchPanel();
+        return;
     }
     if (e.ctrlKey && state.currentNote && state.editor) {
         const key = e.key.toLowerCase();
