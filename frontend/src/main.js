@@ -569,12 +569,8 @@ function initTitlebar() {
         document.querySelectorAll('.titlebar-btn').forEach(btn => btn.classList.remove('hovered'));
         window.runtime?.WindowMinimise();
     });
-    $('#btn-maximize').addEventListener('click', async () => {
-        if (window.runtime?.WindowIsMaximised) {
-            const isMax = await window.runtime.WindowIsMaximised();
-            if (isMax) await window.runtime.WindowUnmaximise();
-            else await window.runtime.WindowMaximise();
-        }
+    $('#btn-maximize').addEventListener('click', () => {
+        window.runtime?.WindowToggleMaximise();
     });
     $('#btn-close').addEventListener('click', () => { window.runtime?.Quit(); });
 
@@ -584,36 +580,10 @@ function initTitlebar() {
         btn.addEventListener('mouseleave', () => btn.classList.remove('hovered'));
     });
 
-    el.titlebar.addEventListener('dblclick', async (e) => {
+    el.titlebar.addEventListener('dblclick', (e) => {
         if (e.target.closest('.titlebar-controls')) return;
-        if (window.runtime?.WindowIsMaximised) {
-            const isMax = await window.runtime.WindowIsMaximised();
-            if (isMax) await window.runtime.WindowUnmaximise();
-            else await window.runtime.WindowMaximise();
-        }
+        window.runtime?.WindowToggleMaximise();
     });
-
-    let isDragging = false, dragStartX = 0, dragStartY = 0, winStartX = 0, winStartY = 0;
-
-    const stopDrag = () => { isDragging = false; };
-
-    el.titlebar.querySelector('.titlebar-drag').addEventListener('mousedown', async (e) => {
-        if (e.button !== 0) return;
-        isDragging = true;
-        dragStartX = e.screenX; dragStartY = e.screenY;
-        try {
-            const pos = await window.runtime.WindowGetPosition();
-            winStartX = pos.x; winStartY = pos.y;
-        } catch (_) { }
-        e.preventDefault();
-    });
-    document.addEventListener('mousemove', async (e) => {
-        if (!isDragging) return;
-        try { window.runtime.WindowSetPosition(winStartX + e.screenX - dragStartX, winStartY + e.screenY - dragStartY); } catch (_) { }
-    });
-    document.addEventListener('mouseup', stopDrag);
-    document.addEventListener('pointerup', stopDrag);
-    window.addEventListener('blur', stopDrag);
 }
 
 // ============================================================
