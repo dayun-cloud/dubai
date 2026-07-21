@@ -573,6 +573,18 @@ async function saveCurrentNote() {
     }
 }
 
+async function saveCurrentNoteWithBackup() {
+    if (!state.currentNote || !state.editor) return;
+    try {
+        const content = JSON.stringify(state.editor.getJSON());
+        await App.SaveNoteBackup(state.currentNote, content);
+        state.isDirty = false;
+    } catch (err) {
+        console.error('保存失败:', err);
+        notify('保存失败: ' + err, 'error');
+    }
+}
+
 function closeNote() {
     state.currentNote = null;
     state.currentNoteName = null;
@@ -1263,7 +1275,7 @@ $('#btn-insert-audio').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
-        saveCurrentNote().then(() => notify('已保存'));
+        saveCurrentNoteWithBackup().then(() => notify('已保存（含备份）'));
     }
     if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();

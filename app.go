@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -222,6 +223,47 @@ func (a *App) ReadNote(relPath string) (string, error) {
 func (a *App) SaveNote(relPath string, content string) error {
 	absPath := filepath.Join(a.workspacePath, relPath)
 	return os.WriteFile(absPath, []byte(content), 0644)
+}
+
+// SaveNoteBackup 保存笔记并创建时间戳备份到 workspace 同级的 _backup 目录
+func (a *App) SaveNoteBackup(relPath string, content string) error {
+	absPath := filepath.Join(a.workspacePath, relPath)
+
+	// 先保存原文件
+	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+		return err
+	}
+
+	// 创建备份目录（workspace 同级）
+	backupDir := filepath.Join(filepath.Dir(a.workspacePath), "_backup")
+	relDir := filepath.Dir(relPath)
+	if relDir != "." {
+		backupDir = filepath.Join(backupDir, relDir)
+	}
+	os.MkdirAll(backupDir, 0755)
+
+	// 生成带时间戳的备份文件名
+	ext := filepath.Ext(relPath)
+	base := relPath[:len(relPath)-len(ext)]
+	baseName := filepath.Base(base)
+	timestamp := time.Now().Format("20060102_150405")
+	backupName := fmt.Sprintf("%s_%s%s", baseName, timestamp, ext)
+	backupPath := filepath.Join(backupDir, backupName)
+
+	src, err := os.Open(absPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(backupPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 // ============================================================
