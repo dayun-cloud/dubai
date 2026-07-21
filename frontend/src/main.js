@@ -463,6 +463,9 @@ function initEditor() {
         editable: true,
         scrollThreshold: 0,
         scrollMargin: 200,
+        onTransaction: () => {
+            updateFormatButtonStates();
+        },
         onUpdate: ({ editor }) => {
             state.isDirty = true;
             requestAnimationFrame(() => {
@@ -520,16 +523,15 @@ async function openNote(relPath, name) {
         } catch (_) {
             // 旧 markdown 格式
             const html = markdownToHtml(content);
-            state.editor.commands.setContent(html);
+            setContentNoHistory(html);
             state.editor.commands.focus();
             state.isDirty = true;
             renderFileTree();
             updateToolbarState();
-            updateFormatButtonStates();
             return;
         }
 
-        state.editor.commands.setContent(doc);
+        setContentNoHistory(doc);
         state.editor.commands.focus();
         renderFileTree();
         updateToolbarState();
@@ -538,6 +540,25 @@ async function openNote(relPath, name) {
         console.error('打开笔记失败:', err);
         notify('打开笔记失败: ' + err, 'error');
     }
+}
+
+// 设置编辑器内容但不写入撤销历史（避免 Ctrl+Z 回退到上一个笔记）
+function setContentNoHistory(docOrHtml) {
+    const view = state.editor.view;
+    let tr;
+    if (typeof docOrHtml === 'object') {
+        // Tiptap JSON 文档
+        const docNode = view.state.schema.nodeFromJSON(docOrHtml);
+        tr = view.state.tr.replaceWith(0, view.state.doc.content.size, docNode.content);
+    } else {
+        // HTML 字符串
+        const parser = new DOMParser();
+        const parsed = parser.parseFromString(docOrHtml, 'text/html');
+        const fragment = view.state.schema.domParser.parse(parsed.body, { preserveWhitespace: 'full' });
+        tr = view.state.tr.replaceWith(0, view.state.doc.content.size, fragment);
+    }
+    tr.setMeta('addToHistory', false);
+    view.dispatch(tr);
 }
 
 async function saveCurrentNote() {
@@ -1247,13 +1268,6 @@ document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
         openSearchPanel();
-        return;
-    }
-    if (e.ctrlKey && state.currentNote && state.editor) {
-        const key = e.key.toLowerCase();
-        if (key === 'b') { e.preventDefault(); state.editor.chain().focus().toggleBold().run(); }
-        if (key === 'i') { e.preventDefault(); state.editor.chain().focus().toggleItalic().run(); }
-        if (key === 'u') { e.preventDefault(); state.editor.chain().focus().toggleUnderline().run(); }
     }
 });
 
