@@ -388,7 +388,7 @@ function showConfirm(msg) {
 }
 
 function getFileNameWithoutExt(name) {
-    return name.replace(/\.md$/i, '');
+    return name.replace(/\.json$/i, '');
 }
 
 function getFileNameFromPath(path) {
@@ -399,39 +399,6 @@ function getParentRelPath(relPath) {
     const parts = relPath.split(/[/\\]/);
     parts.pop();
     return parts.join('/');
-}
-
-// ============================================================
-// Markdown → HTML（旧格式兼容）
-// ============================================================
-function markdownToHtml(md) {
-    if (!md) return '';
-    let html = md;
-
-    html = html.replace(/&/g, '&amp;');
-    html = html.replace(/</g, '&lt;');
-    html = html.replace(/>/g, '&gt;');
-
-    html = html.replace(/\[video\]\(([^)]+)\s+"([^"]*)"\)/g,
-        (_, src, name) => `<div class="editor-video-placeholder"><video src="${src}" preload="metadata" controls></video></div>`);
-    html = html.replace(/\[audio\]\(([^)]+)\s+"([^"]*)"\)/g,
-        (_, src, name) => `<div class="editor-audio-placeholder"><span class="audio-icon-circle"></span><span class="audio-filename">${name}</span></div>`);
-    html = html.replace(/!\[(?:\w:(\d+))?\]\(([^)]+)\)/g,
-        (_, width, src) => {
-            const w = parseInt(width) || 300;
-            return `<span class="resizable-image" style="width:${w}px;"><img src="${src}" alt=""></span>`;
-        });
-
-    html = html.replace(/==([^=]+)==/g, '<mark>$1</mark>');
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-    html = html.replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/g, '<u>$1</u>');
-    html = html.replace(/^---$/gm, '<hr>');
-    html = html.replace(/\n\n/g, '<br><br>');
-    html = html.replace(/\n/g, '<br>');
-
-    return html;
 }
 
 // ============================================================
@@ -516,21 +483,7 @@ async function openNote(relPath, name) {
         el.editorEmpty.style.display = 'none';
         el.editorContainer.style.display = '';
 
-        // 尝试 JSON 格式，失败则用 markdown 兼容
-        let doc = null;
-        try {
-            doc = JSON.parse(content);
-        } catch (_) {
-            // 旧 markdown 格式
-            const html = markdownToHtml(content);
-            setContentNoHistory(html);
-            state.editor.commands.focus();
-            state.isDirty = true;
-            renderFileTree();
-            updateToolbarState();
-            return;
-        }
-
+        const doc = JSON.parse(content);
         setContentNoHistory(doc);
         state.editor.commands.focus();
         renderFileTree();
@@ -543,20 +496,10 @@ async function openNote(relPath, name) {
 }
 
 // 设置编辑器内容但不写入撤销历史（避免 Ctrl+Z 回退到上一个笔记）
-function setContentNoHistory(docOrHtml) {
+function setContentNoHistory(doc) {
     const view = state.editor.view;
-    let tr;
-    if (typeof docOrHtml === 'object') {
-        // Tiptap JSON 文档
-        const docNode = view.state.schema.nodeFromJSON(docOrHtml);
-        tr = view.state.tr.replaceWith(0, view.state.doc.content.size, docNode.content);
-    } else {
-        // HTML 字符串
-        const parser = new DOMParser();
-        const parsed = parser.parseFromString(docOrHtml, 'text/html');
-        const fragment = view.state.schema.domParser.parse(parsed.body, { preserveWhitespace: 'full' });
-        tr = view.state.tr.replaceWith(0, view.state.doc.content.size, fragment);
-    }
+    const docNode = view.state.schema.nodeFromJSON(doc);
+    const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, docNode.content);
     tr.setMeta('addToHistory', false);
     view.dispatch(tr);
 }
@@ -712,7 +655,7 @@ function createTreeNode(node, depth) {
             const newName = input.value.trim();
             const oldName = node.isDir ? node.name : getFileNameWithoutExt(node.name);
             if (newName && newName !== oldName) {
-                let finalName = node.isDir ? newName : (newName.endsWith('.md') ? newName : newName + '.md');
+                let finalName = node.isDir ? newName : (newName.endsWith('.json') ? newName : newName + '.json');
                 try {
                     await App.RenameEntry(node.relPath, finalName);
                     if (state.currentNote === node.relPath) {
@@ -981,7 +924,7 @@ $('#btn-rename-cancel').addEventListener('click', hideRenameDialog);
 $('#btn-rename-confirm').addEventListener('click', async () => {
     const newName = el.renameInput.value.trim();
     if (!newName || !renameTarget) return;
-    let finalName = renameTarget.isDir ? newName : (newName.endsWith('.md') ? newName : newName + '.md');
+    let finalName = renameTarget.isDir ? newName : (newName.endsWith('.json') ? newName : newName + '.json');
     try {
         const oldRelPath = renameTarget.relPath;
         await App.RenameEntry(oldRelPath, finalName);
@@ -1062,8 +1005,8 @@ async function doSearch(keyword) {
         const results = await App.SearchNotes(keyword.trim());
         if (results && results.length > 0) {
             el.searchResults.innerHTML = results.map(r => {
-                const displayPath = r.relPath.endsWith('.md')
-                    ? r.relPath.slice(0, -3).replace(/\\/g, ' / ')
+                const displayPath = r.relPath.endsWith('.json')
+                    ? r.relPath.slice(0, -5).replace(/\\/g, ' / ')
                     : r.relPath;
                 // 高亮关键词
                 const ctx = escapeHtml(r.context);
@@ -1387,7 +1330,7 @@ $('#btn-new-note').addEventListener('click', async () => {
     const name = getUniqueName('新笔记', false, parentDir);
     try {
         await App.CreateNote(parentDir, name);
-        state.inlineEditPath = parentDir ? parentDir + '/' + name + '.md' : name + '.md';
+        state.inlineEditPath = parentDir ? parentDir + '/' + name + '.json' : name + '.json';
         state.inlineEditIsNew = true;
         await refreshFileTree();
     } catch (err) { console.error('创建失败:', err); notify('创建失败: ' + err, 'error'); }

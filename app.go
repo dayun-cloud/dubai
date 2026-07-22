@@ -85,8 +85,8 @@ func (a *App) readDir(absPath string, relBase string) []FileNode {
 		if strings.HasPrefix(name, ".") || strings.HasSuffix(name, "_media") {
 			continue
 		}
-		// 非目录文件只显示 .md
-		if !entry.IsDir() && !strings.HasSuffix(name, ".md") {
+		// 非目录文件只显示 .json
+		if !entry.IsDir() && !strings.HasSuffix(name, ".json") {
 			continue
 		}
 
@@ -138,18 +138,18 @@ func (a *App) CreateFolder(parentRelPath string, name string) error {
 	return os.MkdirAll(dirPath, 0755)
 }
 
-// CreateNote 创建笔记（.md文件）
+// CreateNote 创建笔记（.json文件）
 func (a *App) CreateNote(parentRelPath string, name string) error {
 	parentAbs := a.workspacePath
 	if parentRelPath != "" {
 		parentAbs = filepath.Join(a.workspacePath, parentRelPath)
 	}
 	noteName := name
-	if !strings.HasSuffix(noteName, ".md") {
-		noteName = noteName + ".md"
+	if !strings.HasSuffix(noteName, ".json") {
+		noteName = noteName + ".json"
 	}
 	filePath := filepath.Join(parentAbs, noteName)
-	return os.WriteFile(filePath, []byte(""), 0644)
+	return os.WriteFile(filePath, []byte(`{"type":"doc","content":[{"type":"paragraph"}]}`), 0644)
 }
 
 // RenameEntry 重命名文件或文件夹
@@ -468,7 +468,7 @@ func (a *App) SearchNotes(keyword string) ([]SearchNoteResult, error) {
 		if err != nil {
 			return nil
 		}
-		if info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
 			return nil
 		}
 		relPath, _ := filepath.Rel(a.workspacePath, absPath)
