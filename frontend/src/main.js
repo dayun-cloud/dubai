@@ -486,6 +486,7 @@ async function openNote(relPath, name) {
         const doc = JSON.parse(content);
         setContentNoHistory(doc);
         state.editor.commands.focus();
+        requestAnimationFrame(() => { el.editorWrapper.scrollTop = 0; });
         renderFileTree();
         updateToolbarState();
         updateFormatButtonStates();
@@ -1077,6 +1078,10 @@ function scrollToKeyword(keyword, matchIndex = 0) {
                     const wrapperTop = wrapper.getBoundingClientRect().top;
                     const targetScroll = wrapper.scrollTop + rect.top - wrapperTop - 150;
                     wrapper.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+
+                    // 光标移到关键词结尾
+                    const pos = state.editor.view.posAtDOM(textNode, localIdx + keyword.length);
+                    state.editor.commands.setTextSelection(pos);
                     return;
                 }
                 nth++;
