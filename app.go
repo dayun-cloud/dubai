@@ -549,6 +549,139 @@ func (a *App) SearchNotes(keyword string) ([]SearchNoteResult, error) {
 	return results, nil
 }
 
+// ============================================================
+// 高亮合集
+// ============================================================
+
+// HighlightResult 高亮结果
+type HighlightResult struct {
+	RelPath     string `json:"relPath"`     // 笔记相对路径
+	NoteName    string `json:"noteName"`    // 笔记名称（无后缀）
+	Highlighted string `json:"highlighted"` // 被高亮的文本
+	Context     string `json:"context"`     // 上下文片段
+}
+
+// GetHighlights 获取所有笔记中的高亮文本
+func (a *App) GetHighlights() ([]HighlightResult, error) {
+	var results []HighlightResult
+
+	err := filepath.Walk(a.workspacePath, func(absPath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") {
+			return nil
+		}
+		relPath, _ := filepath.Rel(a.workspacePath, absPath)
+		if strings.HasPrefix(relPath, "_media") || strings.HasPrefix(relPath, "_backup") {
+			return nil
+		}
+
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil
+		}
+
+		var doc map[string]interface{}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return nil
+		}
+
+		noteName := strings.TrimSuffix(info.Name(), ".json")
+		extractHighlights(doc, relPath, noteName, &results)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// extractHighlights 递归提取高亮文本
+func extractHighlights(node map[string]interface{}, relPath, noteName string, results *[]HighlightResult) {
+	if node == nil {
+		return
+	}
+
+	// 处理有 content 的块级节点（paragraph, heading, listItem 等）
+	if content, ok := node["content"]; ok {
+		if arr, ok := content.([]interface{}); ok {
+			// 先收集该块内所有文本和哪些被高亮
+			type textSpan struct {
+				text      string
+				highlight bool
+			}
+			var spans []textSpan
+			hasHighlight := false
+
+			for _, item := range arr {
+				if m, ok := item.(map[string]interface{}); ok {
+					if t, ok := m["text"]; ok {
+						textStr, _ := t.(string)
+						hl := false
+						if marks, ok := m["marks"]; ok {
+							if marksArr, ok := marks.([]interface{}); ok {
+								for _, mark := range marksArr {
+									if markMap, ok := mark.(map[string]interface{}); ok {
+										if mt, _ := markMap["type"].(string); mt == "highlight" {
+											hl = true
+											hasHighlight = true
+										}
+									}
+								}
+							}
+						}
+						spans = append(spans, textSpan{text: textStr, highlight: hl})
+					} else {
+						// 嵌套子节点（如 bold 内的 text），递归处理
+						extractHighlights(m, relPath, noteName, results)
+					}
+				}
+			}
+
+			// 如果该块有高亮，构建上下文
+			if hasHighlight {
+				// 拼接上下文全文
+				var fullText strings.Builder
+				for _, s := range spans {
+					fullText.WriteString(s.text)
+				}
+				fullContext := fullText.String()
+
+				for _, s := range spans {
+					if s.highlight && s.text != "" {
+						// 截取上下文（高亮部分前后各取最多 30 个 rune）
+						hlIdx := strings.Index(fullContext, s.text)
+						snippet := ""
+						if hlIdx > 0 {
+							prefix := []rune(fullContext[:hlIdx])
+							if len(prefix) > 30 {
+								snippet += "..." + string(prefix[len(prefix)-30:])
+							} else {
+								snippet += string(prefix)
+							}
+						}
+						snippet += s.text
+						suffix := []rune(fullContext[hlIdx+len(s.text):])
+						if len(suffix) > 30 {
+							snippet += string(suffix[:30]) + "..."
+						} else {
+							snippet += string(suffix)
+						}
+
+						*results = append(*results, HighlightResult{
+							RelPath:     filepath.ToSlash(relPath),
+							NoteName:    noteName,
+							Highlighted: s.text,
+							Context:     snippet,
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
 // extractPlainText 从 Tiptap JSON 中提取纯文本和媒体文件名
 func extractPlainText(content string) string {
 	var doc map[string]interface{}

@@ -336,6 +336,9 @@ const el = {
     searchPanel: $('#search-panel'),
     searchInput: $('#search-input'),
     searchResults: $('#search-results'),
+
+    highlightsPanel: $('#highlights-panel'),
+    highlightsResults: $('#highlights-results'),
 };
 
 // ============================================================
@@ -1109,9 +1112,94 @@ el.searchInput.addEventListener('input', () => {
     searchTimer = setTimeout(() => doSearch(el.searchInput.value), 300);
 });
 
-// Escape 关闭搜索面板
-el.searchInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeSearchPanel();
+// ============================================================
+// 高亮合集
+// ============================================================
+
+async function openHighlightsPanel() {
+    el.highlightsPanel.style.display = '';
+    el.highlightsResults.innerHTML = '<div class="highlights-loading">加载中...</div>';
+
+    try {
+        const results = await App.GetHighlights();
+        if (!results || results.length === 0) {
+            el.highlightsResults.innerHTML = '<div class="highlights-empty">暂无高亮内容</div>';
+            return;
+        }
+
+        el.highlightsResults.innerHTML = results.map(r => {
+            const displayPath = r.relPath.endsWith('.json')
+                ? r.relPath.slice(0, -5).replace(/\\/g, ' / ')
+                : r.relPath;
+            // 在上下文中高亮被标记的文本
+            const ctx = escapeHtml(r.context);
+            const hlText = escapeHtml(r.highlighted);
+            const idx = ctx.indexOf(hlText);
+            let highlighted = ctx;
+            if (idx >= 0) {
+                highlighted = ctx.slice(0, idx) + '<mark class="search-highlight">' + hlText + '</mark>' + ctx.slice(idx + hlText.length);
+            }
+            return `<div class="search-result-item" data-path="${escapeHtml(r.relPath)}" data-text="${escapeHtml(r.highlighted)}">
+                <span class="search-result-path">${escapeHtml(displayPath)}</span>
+                <span class="search-result-context">${highlighted}</span>
+            </div>`;
+        }).join('');
+
+        // 点击跳转
+        el.highlightsResults.querySelectorAll('.search-result-item').forEach(item => {
+            item.addEventListener('click', async () => {
+                const relPath = item.dataset.path;
+                const text = item.dataset.text;
+                const name = relPath.split(/[\\/]/).pop();
+                await openNote(relPath, name);
+                closeHighlightsPanel();
+                // 等待渲染后滚动到高亮文本
+                setTimeout(() => {
+                    for (let i = 0; i < 3; i++) requestAnimationFrame(() => {});
+                    requestAnimationFrame(() => {
+                        scrollToKeyword(text, 0);
+                    });
+                }, 300);
+            });
+        });
+    } catch (err) {
+        console.error('加载高亮失败:', err);
+        el.highlightsResults.innerHTML = '<div class="highlights-empty">加载失败</div>';
+    }
+}
+
+function closeHighlightsPanel() {
+    el.highlightsPanel.style.display = 'none';
+}
+
+$('#btn-highlights').addEventListener('click', openHighlightsPanel);
+$('#btn-highlights-close').addEventListener('click', closeHighlightsPanel);
+
+// 统一 ESC 处理：高亮面板 > 搜索面板 > 关闭笔记
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+
+    if (el.highlightsPanel.style.display !== 'none') {
+        e.preventDefault();
+        closeHighlightsPanel();
+        return;
+    }
+
+    if (el.searchPanel.style.display !== 'none') {
+        e.preventDefault();
+        closeSearchPanel();
+        return;
+    }
+
+    // 焦点在编辑器内且有打开的笔记 → 保存并关闭
+    if (state.currentNote && state.editor && state.editor.isFocused) {
+        e.preventDefault();
+        if (state.isDirty) {
+            saveCurrentNote().then(() => closeNote());
+        } else {
+            closeNote();
+        }
+    }
 });
 
 // ============================================================

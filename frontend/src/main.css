@@ -108,7 +108,8 @@ input, textarea {
 }
 
 .titlebar-title {
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--text-secondary);
     letter-spacing: 2px;
     pointer-events: none;
@@ -192,6 +193,7 @@ input, textarea {
     width: 30px;
     height: 30px;
     border: none;
+    outline: none;
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -200,6 +202,10 @@ input, textarea {
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
+}
+
+.sidebar-btn:focus {
+    outline: none;
 }
 
 .sidebar-btn:hover {
@@ -1310,6 +1316,57 @@ input, textarea {
 }
 
 .search-no-results {
+    padding: 16px 12px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+/* 高亮合集面板 */
+#highlights-panel {
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.highlights-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.highlights-close-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.highlights-close-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+#highlights-results {
+    padding: 4px 0;
+}
+
+.highlights-loading,
+.highlights-empty {
     padding: 16px 12px;
     color: var(--text-muted);
     font-size: 13px;
