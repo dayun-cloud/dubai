@@ -12,6 +12,11 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	gast "github.com/yuin/goldmark/extension/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // FileNode 文件树节点
@@ -365,7 +370,7 @@ func (a *App) copyToMedia(sourcePath string) (string, error) {
 	return filepath.Base(destPath), nil
 }
 
-// ImportMarkdownFile 导入外部 .md 文件
+// ImportMarkdownFile 导入外部 .md 文件，转换为 Tiptap JSON 格式
 func (a *App) ImportMarkdownFile(destDirRel string) (*FileNode, error) {
 	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "导入 Markdown 文件",
@@ -383,13 +388,28 @@ func (a *App) ImportMarkdownFile(destDirRel string) (*FileNode, error) {
 		return nil, nil
 	}
 
+	// 读取 md 文件内容
+	mdData, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 Tiptap JSON
+	tiptapJSON, err := markdownToTiptapJSON(mdData)
+	if err != nil {
+		return nil, fmt.Errorf("转换 Markdown 失败: %w", err)
+	}
+
 	destDirAbs := a.workspacePath
 	if destDirRel != "" {
 		destDirAbs = filepath.Join(a.workspacePath, destDirRel)
 	}
 
-	fileName := filepath.Base(filePath)
-	destPath := filepath.Join(destDirAbs, fileName)
+	// 生成 .json 文件名
+	baseName := filepath.Base(filePath)
+	ext := filepath.Ext(baseName)
+	jsonName := strings.TrimSuffix(baseName, ext) + ".json"
+	destPath := filepath.Join(destDirAbs, jsonName)
 
 	// 处理文件名冲突
 	counter := 1
@@ -397,36 +417,447 @@ func (a *App) ImportMarkdownFile(destDirRel string) (*FileNode, error) {
 		if _, err := os.Stat(destPath); os.IsNotExist(err) {
 			break
 		}
-		ext := filepath.Ext(fileName)
-		base := strings.TrimSuffix(fileName, ext)
-		fileName = fmt.Sprintf("%s_%d%s", base, counter, ext)
-		destPath = filepath.Join(destDirAbs, fileName)
+		base := strings.TrimSuffix(jsonName, ".json")
+		jsonName = fmt.Sprintf("%s_%d.json", base, counter)
+		destPath = filepath.Join(destDirAbs, jsonName)
 		counter++
 	}
 
-	srcFile, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(destPath)
-	if err != nil {
-		return nil, err
-	}
-	defer dstFile.Close()
-
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
+	if err := os.WriteFile(destPath, tiptapJSON, 0644); err != nil {
 		return nil, err
 	}
 
 	relPath, _ := filepath.Rel(a.workspacePath, destPath)
 	return &FileNode{
-		Name:    fileName,
+		Name:    jsonName,
 		Path:    destPath,
 		RelPath: relPath,
 		IsDir:   false,
 	}, nil
+}
+
+// markdownToTiptapJSON 将 Markdown 内容转换为 Tiptap JSON
+func markdownToTiptapJSON(source []byte) ([]byte, error) {
+	md := goldmark.New(
+		goldmark.WithExtensions(extension.Table),
+	)
+	doc := md.Parser().Parse(text.NewReader(source))
+
+	contents := buildBlockNodes(doc, source)
+	result := map[string]interface{}{
+		"type":    "doc",
+		"content": contents,
+	}
+	return json.Marshal(result)
+}
+
+// buildBlockNodes 遍历 AST 顶级块节点
+func buildBlockNodes(node ast.Node, source []byte) []map[string]interface{} {
+	var blocks []map[string]interface{}
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		block := convertASTNode(child, source)
+		if block != nil {
+			blocks = append(blocks, block)
+		}
+	}
+	if blocks == nil {
+		blocks = []map[string]interface{}{}
+	}
+	return blocks
+}
+
+// convertASTNode 将 AST 节点转换为 Tiptap JSON 节点
+func convertASTNode(node ast.Node, source []byte) map[string]interface{} {
+	switch n := node.(type) {
+	case *ast.Heading:
+		return map[string]interface{}{
+			"type": "heading",
+			"attrs": map[string]interface{}{
+				"level": n.Level,
+			},
+			"content": buildInlineNodes(n, source),
+		}
+	case *ast.Paragraph:
+		return map[string]interface{}{
+			"type":    "paragraph",
+			"content": buildInlineNodes(n, source),
+		}
+	case *ast.FencedCodeBlock:
+		lines := n.Lines()
+		var code strings.Builder
+		for i := 0; i < lines.Len(); i++ {
+			seg := lines.At(i)
+			code.Write(seg.Value(source))
+		}
+		return map[string]interface{}{
+			"type": "codeBlock",
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": code.String(),
+				},
+			},
+		}
+	case *ast.List:
+		// 检查是否为任务列表：所有 listItem 第一段文本以 [ ] 或 [x] 开头
+		isTaskList := !n.IsOrdered()
+		if isTaskList {
+			for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+				if li, ok := child.(*ast.ListItem); ok {
+					text := extractFirstText(li, source)
+					if !strings.HasPrefix(text, "[ ] ") && !strings.HasPrefix(text, "[x] ") && !strings.HasPrefix(text, "[X] ") {
+						isTaskList = false
+						break
+					}
+				}
+			}
+		}
+
+		if isTaskList {
+			var items []map[string]interface{}
+			for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+				ti := convertTaskListItem(child.(*ast.ListItem), source)
+				if ti != nil {
+					items = append(items, ti)
+				}
+			}
+			return map[string]interface{}{
+				"type":    "taskList",
+				"content": items,
+			}
+		}
+
+		listType := "bulletList"
+		if n.IsOrdered() {
+			listType = "orderedList"
+		}
+		var items []map[string]interface{}
+		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+			item := convertASTNode(child, source)
+			if item != nil {
+				items = append(items, item)
+			}
+		}
+		return map[string]interface{}{
+			"type":    listType,
+			"content": items,
+		}
+	case *gast.Table:
+		var rows []map[string]interface{}
+		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+			row := convertTableRow(child, source)
+			if row != nil {
+				rows = append(rows, row)
+			}
+		}
+		return map[string]interface{}{
+			"type":    "table",
+			"content": rows,
+		}
+	case *gast.TableHeader:
+		return convertTableRow(n, source)
+	case *gast.TableRow:
+		return convertTableRow(n, source)
+	case *ast.ListItem:
+		var contents []map[string]interface{}
+		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+			block := convertASTNode(child, source)
+			if block != nil {
+				contents = append(contents, block)
+			}
+		}
+		return map[string]interface{}{
+			"type":    "listItem",
+			"content": contents,
+		}
+	case *ast.Blockquote:
+		var contents []map[string]interface{}
+		for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+			block := convertASTNode(child, source)
+			if block != nil {
+				contents = append(contents, block)
+			}
+		}
+		return map[string]interface{}{
+			"type":    "blockquote",
+			"content": contents,
+		}
+	case *ast.ThematicBreak:
+		return map[string]interface{}{
+			"type": "horizontalRule",
+		}
+	case *ast.TextBlock:
+		// 纯文本块，转为段落
+		return map[string]interface{}{
+			"type":    "paragraph",
+			"content": buildInlineNodes(n, source),
+		}
+	}
+	return nil
+}
+
+// buildInlineNodes 构建行内节点（text + marks）
+func buildInlineNodes(parent ast.Node, source []byte) []map[string]interface{} {
+	var nodes []map[string]interface{}
+	collectInlines(parent, source, &nodes)
+	if nodes == nil {
+		nodes = []map[string]interface{}{}
+	}
+	return nodes
+}
+
+func collectInlines(node ast.Node, source []byte, nodes *[]map[string]interface{}) {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		switch c := child.(type) {
+		case *ast.Text:
+			text := string(c.Segment.Value(source))
+			*nodes = append(*nodes, map[string]interface{}{
+				"type": "text",
+				"text": text,
+			})
+		case *ast.String:
+			text := string(c.Value)
+			*nodes = append(*nodes, map[string]interface{}{
+				"type": "text",
+				"text": text,
+			})
+		case *ast.Emphasis:
+			// Level 1 = italic, Level 2 = bold
+			markType := "italic"
+			if c.Level == 2 {
+				markType = "bold"
+			}
+			var innerNodes []map[string]interface{}
+			collectInlines(c, source, &innerNodes)
+			for i := range innerNodes {
+				marks, _ := innerNodes[i]["marks"].([]interface{})
+				innerNodes[i]["marks"] = append(marks, map[string]interface{}{
+					"type": markType,
+				})
+			}
+			*nodes = append(*nodes, innerNodes...)
+		case *ast.CodeSpan:
+			var code strings.Builder
+			for ic := c.FirstChild(); ic != nil; ic = ic.NextSibling() {
+				if t, ok := ic.(*ast.Text); ok {
+					code.Write(t.Segment.Value(source))
+				}
+			}
+			*nodes = append(*nodes, map[string]interface{}{
+				"type": "text",
+				"text": code.String(),
+				"marks": []map[string]interface{}{
+					{"type": "code"},
+				},
+			})
+		case *ast.Link:
+			var innerNodes []map[string]interface{}
+			collectInlines(c, source, &innerNodes)
+			for i := range innerNodes {
+				marks, _ := innerNodes[i]["marks"].([]interface{})
+				innerNodes[i]["marks"] = append(marks, map[string]interface{}{
+					"type": "link",
+					"attrs": map[string]interface{}{
+						"href": string(c.Destination),
+					},
+				})
+			}
+			*nodes = append(*nodes, innerNodes...)
+		case *ast.Image:
+			// 图片转自定义 resizableImage 节点
+			*nodes = append(*nodes, map[string]interface{}{
+				"type": "resizableImage",
+				"attrs": map[string]interface{}{
+					"src":   string(c.Destination),
+					"alt":   string(c.Title),
+					"width": 300,
+				},
+			})
+		default:
+			// 递归处理未知行内节点
+			collectInlines(c, source, nodes)
+		}
+	}
+}
+
+// ============================================================
+// Markdown 导入辅助函数
+// ============================================================
+
+// extractFirstText 提取节点中第一个纯文本（用于检测任务列表）
+func extractFirstText(node ast.Node, source []byte) string {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if p, ok := child.(*ast.Paragraph); ok {
+			return extractAllText(p, source)
+		}
+		if t, ok := child.(*ast.TextBlock); ok {
+			return extractAllText(t, source)
+		}
+	}
+	return ""
+}
+
+func extractAllText(node ast.Node, source []byte) string {
+	var buf strings.Builder
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if t, ok := child.(*ast.Text); ok {
+			buf.Write(t.Segment.Value(source))
+		}
+	}
+	return buf.String()
+}
+
+// convertTaskListItem 将 listItem 转为 taskItem
+func convertTaskListItem(li *ast.ListItem, source []byte) map[string]interface{} {
+	checked := false
+	var realContent []map[string]interface{}
+
+	for child := li.FirstChild(); child != nil; child = child.NextSibling() {
+		if p, ok := child.(*ast.Paragraph); ok {
+			// 去掉 [ ] 或 [x] 前缀
+			text := extractAllText(p, source)
+			if strings.HasPrefix(text, "[x] ") || strings.HasPrefix(text, "[X] ") {
+				checked = true
+				text = text[4:]
+			} else if strings.HasPrefix(text, "[ ] ") {
+				text = text[4:]
+			}
+			// 重建段落的 inline 节点，去掉前缀
+			nodes := buildInlineNodesStripped(p, source, text)
+			realContent = append(realContent, map[string]interface{}{
+				"type":    "paragraph",
+				"content": nodes,
+			})
+		} else {
+			block := convertASTNode(child, source)
+			if block != nil {
+				realContent = append(realContent, block)
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"type": "taskItem",
+		"attrs": map[string]interface{}{
+			"checked": checked,
+		},
+		"content": realContent,
+	}
+}
+
+// buildInlineNodesStripped 构建行内节点，替换第一个 text 节点去掉前缀
+func buildInlineNodesStripped(parent ast.Node, source []byte, strippedText string) []map[string]interface{} {
+	var nodes []map[string]interface{}
+	firstText := true
+	collectInlinesStripped(parent, source, &nodes, &firstText, strippedText)
+	if nodes == nil {
+		nodes = []map[string]interface{}{}
+	}
+	return nodes
+}
+
+func collectInlinesStripped(node ast.Node, source []byte, nodes *[]map[string]interface{}, firstText *bool, strippedText string) {
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		switch c := child.(type) {
+		case *ast.Text:
+			text := string(c.Segment.Value(source))
+			if *firstText {
+				text = strippedText
+				*firstText = false
+			}
+			if text != "" {
+				*nodes = append(*nodes, map[string]interface{}{
+					"type": "text",
+					"text": text,
+				})
+			}
+		case *ast.String:
+			text := string(c.Value)
+			if *firstText {
+				text = strippedText
+				*firstText = false
+			}
+			if text != "" {
+				*nodes = append(*nodes, map[string]interface{}{
+					"type": "text",
+					"text": text,
+				})
+			}
+		case *ast.Emphasis:
+			markType := "italic"
+			if c.Level == 2 {
+				markType = "bold"
+			}
+			var innerNodes []map[string]interface{}
+			collectInlinesStripped(c, source, &innerNodes, firstText, strippedText)
+			for i := range innerNodes {
+				marks, _ := innerNodes[i]["marks"].([]interface{})
+				innerNodes[i]["marks"] = append(marks, map[string]interface{}{
+					"type": markType,
+				})
+			}
+			*nodes = append(*nodes, innerNodes...)
+		case *ast.CodeSpan:
+			var code strings.Builder
+			for ic := c.FirstChild(); ic != nil; ic = ic.NextSibling() {
+				if t, ok := ic.(*ast.Text); ok {
+					code.Write(t.Segment.Value(source))
+				}
+			}
+			// 去掉任务前缀（不太可能出现在 codeSpan 中，但处理一下）
+			codeStr := code.String()
+			if *firstText {
+				codeStr = strippedText
+				*firstText = false
+			}
+			if codeStr != "" {
+				*nodes = append(*nodes, map[string]interface{}{
+					"type": "text",
+					"text": codeStr,
+					"marks": []map[string]interface{}{
+						{"type": "code"},
+					},
+				})
+			}
+		case *ast.Link:
+			var innerNodes []map[string]interface{}
+			collectInlinesStripped(c, source, &innerNodes, firstText, strippedText)
+			for i := range innerNodes {
+				marks, _ := innerNodes[i]["marks"].([]interface{})
+				innerNodes[i]["marks"] = append(marks, map[string]interface{}{
+					"type": "link",
+					"attrs": map[string]interface{}{
+						"href": string(c.Destination),
+					},
+				})
+			}
+			*nodes = append(*nodes, innerNodes...)
+		default:
+			collectInlinesStripped(c, source, nodes, firstText, strippedText)
+		}
+	}
+}
+
+// convertTableRow 转换表格行
+func convertTableRow(node ast.Node, source []byte) map[string]interface{} {
+	var cells []map[string]interface{}
+	for child := node.FirstChild(); child != nil; child = child.NextSibling() {
+		if cell, ok := child.(*gast.TableCell); ok {
+			cellType := "tableCell"
+			// 检查是否为表头单元格
+			if _, isHeader := node.(*gast.TableHeader); isHeader {
+				cellType = "tableHeader"
+			}
+			cells = append(cells, map[string]interface{}{
+				"type":    cellType,
+				"content": buildInlineNodes(cell, source),
+			})
+		}
+	}
+	return map[string]interface{}{
+		"type":    "tableRow",
+		"content": cells,
+	}
 }
 
 // ============================================================

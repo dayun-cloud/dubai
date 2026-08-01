@@ -3,7 +3,7 @@
 // ============================================================
 
 // Tiptap 来自 tiptap-bundle.js (IIFE)
-const { Editor, Node, Mark, StarterKit, ImageExtension, Underline, Highlight, Link } = window.TiptapBundle;
+const { Editor, Node, Mark, StarterKit, ImageExtension, Underline, Highlight, Link, Table, TableRow, TableCell, TableHeader, TaskList, TaskItem } = window.TiptapBundle;
 
 // ============================================================
 // 自定义 Tiptap 扩展
@@ -414,9 +414,6 @@ function initEditor() {
         extensions: [
             StarterKit.configure({
                 history: true,
-                codeBlock: false,
-                bulletList: false,
-                orderedList: false,
             }),
             Underline,
             Highlight.configure({ multicolor: false }),
@@ -428,6 +425,14 @@ function initEditor() {
             VideoNode,
             AudioNode,
             Spoiler,
+            Table.configure({
+                resizable: true,
+            }),
+            TableRow,
+            TableCell,
+            TableHeader,
+            TaskList,
+            TaskItem,
         ],
         content: '',
         editable: true,

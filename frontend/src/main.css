@@ -618,6 +618,132 @@ input, textarea {
     text-decoration-color: #f1c40f;
 }
 
+/* 代码块 */
+.ProseMirror pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin: 8px 0;
+    overflow-x: auto;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ProseMirror pre code {
+    color: #d4d4d4;
+    background: none;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* 行内代码 */
+.ProseMirror code {
+    background: rgba(102, 167, 189, 0.12);
+    color: #88cfde;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.9em;
+}
+
+/* 无序列表 */
+.ProseMirror ul {
+    padding-left: 1.5em;
+    margin: 4px 0;
+}
+
+.ProseMirror ul li {
+    list-style-type: disc;
+    margin: 2px 0;
+}
+
+/* 有序列表 */
+.ProseMirror ol {
+    padding-left: 1.5em;
+    margin: 4px 0;
+}
+
+.ProseMirror ol li {
+    list-style-type: decimal;
+    margin: 2px 0;
+}
+
+/* 列表项段落间距 */
+.ProseMirror li p {
+    margin: 0;
+}
+
+/* 表格 */
+.ProseMirror .tableWrapper {
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.ProseMirror table {
+    border-collapse: collapse;
+    margin: 0;
+    min-width: 100%;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    text-align: left;
+    min-width: 40px;
+}
+
+.ProseMirror th {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ProseMirror td {
+    color: var(--text-primary);
+}
+
+.ProseMirror .selectedCell {
+    background: rgba(102, 167, 189, 0.15);
+}
+
+/* 任务列表 */
+.ProseMirror ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 2px 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li label {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.ProseMirror ul[data-type="taskList"] li label input[type="checkbox"] {
+    accent-color: var(--accent-start);
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li div {
+    flex: 1;
+}
+
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] div {
+    text-decoration: line-through;
+    color: var(--text-muted);
+}
+
 .ProseMirror u {
     text-underline-offset: 3px;
 }
