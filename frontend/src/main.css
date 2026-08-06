@@ -890,6 +890,7 @@ input, textarea {
     display: flex;
     align-items: center;
     justify-content: center;
+    overflow: hidden;
 }
 
 .image-viewer-bg {
@@ -900,11 +901,17 @@ input, textarea {
 
 #image-viewer-img {
     position: relative;
-    max-width: 90vw;
-    max-height: 90vh;
-    object-fit: contain;
     z-index: 1;
     border-radius: 4px;
+    transform-origin: center center;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: auto;
+    cursor: grab;
+}
+
+#image-viewer.dragging #image-viewer-img {
+    cursor: grabbing;
 }
 
 .image-viewer-close {
@@ -927,6 +934,19 @@ input, textarea {
 
 .image-viewer-close:hover {
     background: rgba(255,255,255,0.25);
+}
+
+/* 缩放提示 */
+.image-viewer-hint {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    pointer-events: none;
+    transition: opacity 0.3s;
 }
 
 /* ============================================================
@@ -986,7 +1006,8 @@ input, textarea {
    右键菜单
    ============================================================ */
 #context-menu,
-#context-menu-folder {
+#context-menu-folder,
+#context-menu-media {
     position: fixed;
     z-index: 3000;
     background: var(--bg-tertiary);
@@ -1013,6 +1034,12 @@ input, textarea {
 
 .context-menu-danger:hover {
     background: var(--danger);
+}
+
+.context-menu-separator {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 8px;
 }
 
 /* ============================================================

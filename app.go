@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -869,6 +870,30 @@ func (a *App) GetWorkspacePath() string {
 	return a.workspacePath
 }
 
+// OpenMediaLocation 在文件管理器中打开媒体文件所在位置
+func (a *App) OpenMediaLocation(fileName string) error {
+	mediaPath := filepath.Join(a.workspacePath, "_media", fileName)
+	return openFileLocation(mediaPath)
+}
+
+// OpenMediaWithDefaultApp 用系统默认程序打开媒体文件
+func (a *App) OpenMediaWithDefaultApp(fileName string) error {
+	mediaPath := filepath.Join(a.workspacePath, "_media", fileName)
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", mediaPath).Start()
+}
+
+// DeleteMediaFile 删除 _media 目录中的媒体文件
+func (a *App) DeleteMediaFile(fileName string) error {
+	mediaPath := filepath.Join(a.workspacePath, "_media", fileName)
+	// 安全检查：确保文件确实在 _media 目录中
+	absMedia, _ := filepath.Abs(mediaPath)
+	absMediaDir, _ := filepath.Abs(filepath.Join(a.workspacePath, "_media"))
+	if !strings.HasPrefix(absMedia, absMediaDir) {
+		return fmt.Errorf("无效的媒体文件路径")
+	}
+	return os.Remove(mediaPath)
+}
+
 // OpenExternalLink 用系统默认浏览器打开链接
 func (a *App) OpenExternalLink(url string) {
 	runtime.BrowserOpenURL(a.ctx, url)
@@ -1252,4 +1277,9 @@ func getMimeType(fileName string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// openFileLocation 在 Windows 资源管理器中打开并选中指定文件
+func openFileLocation(filePath string) error {
+	return exec.Command("explorer", "/select,", filePath).Start()
 }

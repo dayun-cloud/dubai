@@ -44,6 +44,10 @@ const ResizableImage = ImageExtension.extend({
                 e.stopPropagation();
                 openImageViewer(node.attrs.src);
             });
+            // 在容器上存储媒体信息，供全局 contextmenu 使用
+            container.__mediaFileName = node.attrs.src.replace(/^\/media\//, '');
+            container.__mediaGetPos = getPos;
+            container.__mediaEditor = editor;
             container.appendChild(img);
 
             // 文件名标签（小图时显示在底部）
@@ -146,6 +150,11 @@ const VideoNode = Node.create({
 
             dom.appendChild(video);
 
+            // 在容器上存储媒体信息，供全局 contextmenu 使用
+            dom.__mediaFileName = node.attrs.src.replace(/^\/media\//, '');
+            dom.__mediaGetPos = getPos;
+            dom.__mediaEditor = editor;
+
             // 缩放手柄
             const handle = document.createElement('span');
             handle.className = 'resizable-handle';
@@ -230,7 +239,7 @@ const AudioNode = Node.create({
         ];
     },
     addNodeView() {
-        return ({ node }) => {
+        return ({ node, getPos, editor }) => {
             const dom = document.createElement('div');
             dom.className = 'editor-audio-placeholder';
             dom.setAttribute('data-type', 'audio-node');
@@ -238,6 +247,10 @@ const AudioNode = Node.create({
                 e.stopPropagation();
                 playAudio(node.attrs.src, node.attrs.name);
             });
+            // 在容器上存储媒体信息，供全局 contextmenu 使用
+            dom.__mediaFileName = node.attrs.src.replace(/^\/media\//, '');
+            dom.__mediaGetPos = getPos;
+            dom.__mediaEditor = editor;
 
             const iconSpan = document.createElement('span');
             iconSpan.className = 'audio-icon-circle';
@@ -322,6 +335,7 @@ const el = {
     videoPlayerEl: $('#video-player-el'),
     contextMenu: $('#context-menu'),
     contextMenuFolder: $('#context-menu-folder'),
+    contextMenuMedia: $('#context-menu-media'),
     renameOverlay: $('#rename-overlay'),
     renameInput: $('#rename-input'),
     sidebar: $('#sidebar'),
@@ -759,18 +773,149 @@ function toggleDir(relPath) {
 }
 
 // ============================================================
-// 图片查看器
+// 图片查看器（支持滚轮缩放和拖动平移）
 // ============================================================
+const imgViewerState = {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    isDragging: false,
+    hasMoved: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    lastTranslateX: 0,
+    lastTranslateY: 0,
+};
+
+function applyImageTransform() {
+    el.imageViewerImg.style.transform =
+        `translate(${imgViewerState.translateX}px, ${imgViewerState.translateY}px) scale(${imgViewerState.scale})`;
+}
+
+function resetImageViewer() {
+    imgViewerState.translateX = 0;
+    imgViewerState.translateY = 0;
+    imgViewerState.isDragging = false;
+    imgViewerState.hasMoved = false;
+
+    const naturalW = el.imageViewerImg.naturalWidth;
+    const naturalH = el.imageViewerImg.naturalHeight;
+    if (naturalW && naturalH) {
+        const viewportW = window.innerWidth * 0.9;
+        const viewportH = window.innerHeight * 0.9;
+        imgViewerState.scale = Math.min(viewportW / naturalW, viewportH / naturalH, 1);
+    } else {
+        imgViewerState.scale = 1;
+    }
+    applyImageTransform();
+}
+
 function openImageViewer(src) {
     el.imageViewerImg.src = src;
     el.imageViewer.style.display = '';
+
+    // 等图片加载完后计算初始适配比例
+    if (el.imageViewerImg.complete && el.imageViewerImg.naturalWidth) {
+        resetImageViewer();
+    } else {
+        // 先以 scale=1 显示，onload 后再调整
+        imgViewerState.scale = 1;
+        imgViewerState.translateX = 0;
+        imgViewerState.translateY = 0;
+        applyImageTransform();
+    }
 }
+
 function closeImageViewer() {
     el.imageViewer.style.display = 'none';
     el.imageViewerImg.src = '';
+    imgViewerState.isDragging = false;
+    imgViewerState.hasMoved = false;
+    el.imageViewer.classList.remove('dragging');
 }
+
+// 图片加载完成后自动适配
+el.imageViewerImg.addEventListener('load', () => {
+    if (el.imageViewer.style.display !== 'none') {
+        resetImageViewer();
+    }
+});
+
+// 滚轮缩放（以鼠标位置为中心）
+el.imageViewer.addEventListener('wheel', (e) => {
+    if (el.imageViewer.style.display === 'none') return;
+    e.preventDefault();
+
+    const delta = e.deltaY > 0 ? -0.15 : 0.15;
+    const newScale = Math.max(0.1, Math.min(10, imgViewerState.scale + delta));
+
+    const rect = el.imageViewer.getBoundingClientRect();
+    // 鼠标相对于 viewer 中心的位置
+    const mouseX = e.clientX - rect.left - rect.width / 2;
+    const mouseY = e.clientY - rect.top - rect.height / 2;
+
+    const scaleRatio = newScale / imgViewerState.scale;
+    imgViewerState.translateX = mouseX - scaleRatio * (mouseX - imgViewerState.translateX);
+    imgViewerState.translateY = mouseY - scaleRatio * (mouseY - imgViewerState.translateY);
+    imgViewerState.scale = newScale;
+
+    applyImageTransform();
+}, { passive: false });
+
+// 指针按下开始拖动
+el.imageViewerImg.addEventListener('pointerdown', (e) => {
+    if (el.imageViewer.style.display === 'none') return;
+    imgViewerState.isDragging = true;
+    imgViewerState.hasMoved = false;
+    imgViewerState.dragStartX = e.clientX;
+    imgViewerState.dragStartY = e.clientY;
+    imgViewerState.lastTranslateX = imgViewerState.translateX;
+    imgViewerState.lastTranslateY = imgViewerState.translateY;
+    el.imageViewer.classList.add('dragging');
+    el.imageViewerImg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+});
+
+// 指针移动拖动
+el.imageViewerImg.addEventListener('pointermove', (e) => {
+    if (!imgViewerState.isDragging) return;
+    const dx = e.clientX - imgViewerState.dragStartX;
+    const dy = e.clientY - imgViewerState.dragStartY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        imgViewerState.hasMoved = true;
+    }
+    imgViewerState.translateX = imgViewerState.lastTranslateX + dx;
+    imgViewerState.translateY = imgViewerState.lastTranslateY + dy;
+    applyImageTransform();
+});
+
+// 指针释放
+el.imageViewerImg.addEventListener('pointerup', (e) => {
+    if (!imgViewerState.isDragging) return;
+    imgViewerState.isDragging = false;
+    el.imageViewer.classList.remove('dragging');
+    el.imageViewerImg.releasePointerCapture(e.pointerId);
+});
+
+el.imageViewerImg.addEventListener('pointercancel', () => {
+    imgViewerState.isDragging = false;
+    el.imageViewer.classList.remove('dragging');
+});
+
+// 双击重置缩放和位置
+el.imageViewerImg.addEventListener('dblclick', (e) => {
+    if (el.imageViewer.style.display === 'none') return;
+    e.preventDefault();
+    resetImageViewer();
+});
+
+// 关闭按钮与背景点击
 $('#btn-close-viewer').addEventListener('click', closeImageViewer);
-$('.image-viewer-bg').addEventListener('click', closeImageViewer);
+$('.image-viewer-bg').addEventListener('click', (e) => {
+    // 拖动过则不关闭
+    if (imgViewerState.hasMoved) return;
+    closeImageViewer();
+});
 
 // ============================================================
 // 视频播放器
@@ -860,10 +1005,64 @@ function showContextMenu(x, y, node) {
 function hideContextMenus() {
     el.contextMenu.style.display = 'none';
     el.contextMenuFolder.style.display = 'none';
+    el.contextMenuMedia.style.display = 'none';
     contextMenuTarget = null;
+    mediaContextTarget = null;
 }
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('#context-menu') && !e.target.closest('#context-menu-folder')) hideContextMenus();
+    if (!e.target.closest('#context-menu') && !e.target.closest('#context-menu-folder') && !e.target.closest('#context-menu-media')) {
+        hideContextMenus();
+    }
+});
+
+// 媒体右键菜单
+let mediaContextTarget = null;
+function showMediaContextMenu(x, y, fileName, nodePos, editor) {
+    hideContextMenus();
+    mediaContextTarget = { fileName, nodePos, editor };
+    el.contextMenuMedia.style.left = x + 'px';
+    el.contextMenuMedia.style.top = y + 'px';
+    el.contextMenuMedia.style.display = '';
+}
+
+el.contextMenuMedia.querySelectorAll('.context-menu-item').forEach(item => {
+    item.addEventListener('click', async () => {
+        const action = item.dataset.action;
+        const target = mediaContextTarget;
+        hideContextMenus();
+        if (!target) return;
+
+        if (action === 'open-location') {
+            try {
+                await App.OpenMediaLocation(target.fileName);
+            } catch (err) {
+                console.error('打开文件位置失败:', err);
+                notify('打开文件位置失败', 'error');
+            }
+        } else if (action === 'open-default') {
+            try {
+                await App.OpenMediaWithDefaultApp(target.fileName);
+            } catch (err) {
+                console.error('打开文件失败:', err);
+                notify('打开文件失败', 'error');
+            }
+        } else if (action === 'delete-media') {
+            const ok = await showConfirm(`确定删除媒体文件"${target.fileName}"吗？该操作将从磁盘中删除文件。`);
+            if (!ok) return;
+            try {
+                await App.DeleteMediaFile(target.fileName);
+                // 从编辑器中移除对应节点
+                if (target.editor && !target.editor.isDestroyed && target.nodePos !== undefined) {
+                    target.editor.view.dispatch(
+                        target.editor.state.tr.delete(target.nodePos, target.nodePos + 1)
+                    );
+                }
+            } catch (err) {
+                console.error('删除媒体文件失败:', err);
+                notify('删除媒体文件失败', 'error');
+            }
+        }
+    });
 });
 
 el.contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
@@ -1180,9 +1379,15 @@ function closeHighlightsPanel() {
 $('#btn-highlights').addEventListener('click', openHighlightsPanel);
 $('#btn-highlights-close').addEventListener('click', closeHighlightsPanel);
 
-// 统一 ESC 处理：高亮面板 > 搜索面板 > 关闭笔记
+// 统一 ESC 处理：图片查看器 > 高亮面板 > 搜索面板 > 关闭笔记
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+
+    if (el.imageViewer.style.display !== 'none') {
+        e.preventDefault();
+        closeImageViewer();
+        return;
+    }
 
     if (el.highlightsPanel.style.display !== 'none') {
         e.preventDefault();
@@ -1448,14 +1653,24 @@ $('#btn-refresh').addEventListener('click', async () => { await refreshFileTree(
 // ============================================================
 // 禁用浏览器右键菜单
 // ============================================================
+// 用捕获阶段监听，确保在 ProseMirror 之前拦截
 document.addEventListener('contextmenu', (e) => {
+    // 编辑器区域：检测是否右键点击了媒体元素
     if (e.target.closest('.ProseMirror') || e.target.closest('#editor-container')) {
         e.preventDefault();
+        const mediaEl = e.target.closest('[data-type="resizable-image"]') ||
+                        e.target.closest('[data-type="video-node"]') ||
+                        e.target.closest('[data-type="audio-node"]');
+        if (mediaEl && mediaEl.__mediaFileName) {
+            e.stopPropagation();
+            const pos = mediaEl.__mediaGetPos ? mediaEl.__mediaGetPos() : undefined;
+            showMediaContextMenu(e.clientX, e.clientY, mediaEl.__mediaFileName, pos, mediaEl.__mediaEditor);
+        }
         return;
     }
     if (e.target.closest('#file-tree')) return;
     e.preventDefault();
-});
+}, true);
 
 // ============================================================
 // 初始化
