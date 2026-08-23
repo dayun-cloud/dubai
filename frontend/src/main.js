@@ -998,9 +998,27 @@ let contextMenuTarget = null;
 function showContextMenu(x, y, node) {
     contextMenuTarget = node;
     const menu = node.isDir ? el.contextMenuFolder : el.contextMenu;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
     menu.style.display = '';
+    
+    // 获取菜单尺寸
+    const menuRect = menu.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // 调整水平位置
+    let finalX = x;
+    if (x + menuRect.width > viewportWidth) {
+        finalX = viewportWidth - menuRect.width - 5;
+    }
+    
+    // 调整垂直位置
+    let finalY = y;
+    if (y + menuRect.height > viewportHeight) {
+        finalY = viewportHeight - menuRect.height - 5;
+    }
+    
+    menu.style.left = finalX + 'px';
+    menu.style.top = finalY + 'px';
 }
 function hideContextMenus() {
     el.contextMenu.style.display = 'none';
@@ -1020,9 +1038,27 @@ let mediaContextTarget = null;
 function showMediaContextMenu(x, y, fileName, nodePos, editor) {
     hideContextMenus();
     mediaContextTarget = { fileName, nodePos, editor };
-    el.contextMenuMedia.style.left = x + 'px';
-    el.contextMenuMedia.style.top = y + 'px';
     el.contextMenuMedia.style.display = '';
+    
+    // 获取菜单尺寸
+    const menuRect = el.contextMenuMedia.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // 调整水平位置
+    let finalX = x;
+    if (x + menuRect.width > viewportWidth) {
+        finalX = viewportWidth - menuRect.width - 5;
+    }
+    
+    // 调整垂直位置
+    let finalY = y;
+    if (y + menuRect.height > viewportHeight) {
+        finalY = viewportHeight - menuRect.height - 5;
+    }
+    
+    el.contextMenuMedia.style.left = finalX + 'px';
+    el.contextMenuMedia.style.top = finalY + 'px';
 }
 
 el.contextMenuMedia.querySelectorAll('.context-menu-item').forEach(item => {
@@ -1487,31 +1523,67 @@ function updateFormatButtonStates() {
 
 $('#btn-insert-image').addEventListener('click', async () => {
     if (!state.currentNote || !state.editor) return;
+    
+    // 在打开文件对话框之前，保存当前光标位置
+    const { from, to } = state.editor.state.selection;
+    
     try {
         const mediaInfo = await App.ImportMedia(state.currentNote, 'image');
         if (!mediaInfo) return;
         const url = makeMediaUrl(mediaInfo.relPath);
-        state.editor.chain().focus().setResizableImage({ src: url, alt: mediaInfo.fileName }).run();
+        
+        // 插入媒体，然后插入一个段落并将光标移到段落中
+        state.editor.chain()
+            .insertContentAt({ from, to }, [
+                { type: 'resizableImage', attrs: { src: url, alt: mediaInfo.fileName, width: 300 } },
+                { type: 'paragraph' }
+            ])
+            .focus()
+            .run();
     } catch (err) { console.error('插入图片失败:', err); notify('插入图片失败', 'error'); }
 });
 
 $('#btn-insert-video').addEventListener('click', async () => {
     if (!state.currentNote || !state.editor) return;
+    
+    // 在打开文件对话框之前，保存当前光标位置
+    const { from, to } = state.editor.state.selection;
+    
     try {
         const mediaInfo = await App.ImportMedia(state.currentNote, 'video');
         if (!mediaInfo) return;
         const url = makeMediaUrl(mediaInfo.relPath);
-        state.editor.chain().focus().setVideoNode({ src: url, name: mediaInfo.fileName }).run();
+        
+        // 插入媒体，然后插入一个段落并将光标移到段落中
+        state.editor.chain()
+            .insertContentAt({ from, to }, [
+                { type: 'videoNode', attrs: { src: url, name: mediaInfo.fileName, width: 480 } },
+                { type: 'paragraph' }
+            ])
+            .focus()
+            .run();
     } catch (err) { console.error('插入视频失败:', err); notify('插入视频失败', 'error'); }
 });
 
 $('#btn-insert-audio').addEventListener('click', async () => {
     if (!state.currentNote || !state.editor) return;
+    
+    // 在打开文件对话框之前，保存当前光标位置
+    const { from, to } = state.editor.state.selection;
+    
     try {
         const mediaInfo = await App.ImportMedia(state.currentNote, 'audio');
         if (!mediaInfo) return;
         const url = makeMediaUrl(mediaInfo.relPath);
-        state.editor.chain().focus().setAudioNode({ src: url, name: mediaInfo.fileName }).run();
+        
+        // 插入媒体，然后插入一个段落并将光标移到段落中
+        state.editor.chain()
+            .insertContentAt({ from, to }, [
+                { type: 'audioNode', attrs: { src: url, name: mediaInfo.fileName } },
+                { type: 'paragraph' }
+            ])
+            .focus()
+            .run();
     } catch (err) { console.error('插入音频失败:', err); notify('插入音频失败', 'error'); }
 });
 
@@ -1530,45 +1602,29 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ============================================================
-// 拖入文件支持
+// 阻止外部文件拖入的默认行为（避免打开新窗口）
 // ============================================================
-document.addEventListener('dragover', (e) => { e.preventDefault(); });
-
-document.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    if (!state.currentNote || !state.editor) return;
-    const files = e.dataTransfer?.files;
-    if (!files || files.length === 0) return;
-    for (const file of files) {
-        const filePath = file.path;
-        if (filePath) {
-            try {
-                const mediaInfo = await App.ImportMediaFromPath(filePath, state.currentNote);
-                if (!mediaInfo) continue;
-                const url = makeMediaUrl(mediaInfo.relPath);
-                const type = getMediaTypeFromMime(mediaInfo.mimeType);
-                const ed = state.editor.chain().focus();
-                if (type === 'image') ed.setResizableImage({ src: url, alt: mediaInfo.fileName }).run();
-                else if (type === 'video') ed.setVideoNode({ src: url, name: mediaInfo.fileName }).run();
-                else if (type === 'audio') ed.setAudioNode({ src: url, name: mediaInfo.fileName }).run();
-            } catch (err) { console.error('拖入文件处理失败:', err); }
-        }
-    }
+document.addEventListener('dragover', (e) => { 
+    e.preventDefault(); 
+    e.dataTransfer.dropEffect = 'none';
 });
 
-function getMediaTypeFromMime(mimeType) {
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    if (mimeType.startsWith('audio/')) return 'audio';
-    return 'image';
-}
+document.addEventListener('drop', (e) => { 
+    e.preventDefault();
+    // 不处理任何拖入文件，只是阻止浏览器默认行为
+});
 
 // ============================================================
 // 文件树根区域拖放
 // ============================================================
-el.fileTree.addEventListener('dragover', (e) => { e.preventDefault(); });
+el.fileTree.addEventListener('dragover', (e) => { 
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+});
 el.fileTree.addEventListener('drop', async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     if (e.target.closest('.tree-node-header')) return;
     const srcNode = state.dragData;
     if (!srcNode) return;
