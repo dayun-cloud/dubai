@@ -709,6 +709,76 @@ input, textarea {
     background: rgba(102, 167, 189, 0.15);
 }
 
+/* 表格宽度自适应（表格工具栏切换，列宽随窗口自动伸缩） */
+.ProseMirror table[data-fit-width] {
+    width: 100%;
+}
+
+/* 表格浮动工具栏（光标进入表格时显示在表格上方） */
+#table-toolbar {
+    position: fixed;
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 3px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.table-tb-btn {
+    width: 28px;
+    height: 26px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.table-tb-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.table-tb-btn.active {
+    background: var(--bg-active);
+    color: #fff;
+    box-shadow: 0 0 0 1px var(--accent-start), 0 0 6px rgba(102, 167, 189, 0.3);
+}
+
+.table-tb-danger:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+.table-tb-separator {
+    width: 1px;
+    height: 18px;
+    background: var(--border-color);
+    margin: 0 3px;
+}
+
+/* 开发模式徽标（标题栏） */
+.dev-mode-badge {
+    margin-left: 8px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #1e1e1e;
+    background: #e5c07b;
+    border-radius: 8px;
+    -webkit-app-region: no-drag;
+}
+
+
 /* 任务列表 */
 .ProseMirror ul[data-type="taskList"] {
     list-style: none;

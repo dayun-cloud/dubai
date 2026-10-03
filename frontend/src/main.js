@@ -291,6 +291,36 @@ const Spoiler = Mark.create({
     },
 });
 
+// 表格单元格/表头附加 textAlign 属性（渲染为内联样式，随笔记 JSON 持久化）
+const withTextAlign = (BaseExtension) => BaseExtension.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            textAlign: {
+                default: null,
+                parseHTML: (element) => element.style.textAlign || null,
+                renderHTML: (attrs) => attrs.textAlign ? { style: `text-align: ${attrs.textAlign}` } : {},
+            },
+        };
+    },
+});
+const AlignableTableCell = withTextAlign(TableCell);
+const AlignableTableHeader = withTextAlign(TableHeader);
+
+// 表格节点附加 fitWidth 属性（宽度自适应编辑区，列宽按比例缩放）
+const FitWidthTable = Table.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            fitWidth: {
+                default: null,
+                parseHTML: (el) => (el.hasAttribute('data-fit-width') ? true : null),
+                renderHTML: (attrs) => (attrs.fitWidth ? { 'data-fit-width': 'true' } : {}),
+            },
+        };
+    },
+});
+
 // ============================================================
 // 全局状态
 // ============================================================
@@ -422,7 +452,73 @@ function getParentRelPath(relPath) {
 // Tiptap 编辑器初始化
 // ============================================================
 
-function initEditor() {
+// 去掉粘贴切片首尾的空段落/换行符（外部复制常带首尾换行，粘贴后内容上下会多出空行）。
+// 两类边缘杂质：
+// 1. 空段落（含 <p><br></p> 这种）——外部 HTML 粘贴常见；
+// 2. 顶层的 hardBreak——带 data-pm-slice 标记的内部粘贴经 preserveWhitespace 重建后，
+//    源 HTML 里的空白符与仅含 <br> 的空段会变成切片两端的行内换行节点。
+// 注意：PM 对所有外部粘贴统一走 Slice.maxOpen（边缘段落 open 深度为 1），
+// 所以不能只处理闭合切片；裁掉处于打开深度的边缘节点时，需同步减掉对应 open 深度。
+function trimPastedSlice(slice) {
+    const isEmptyish = (node) => {
+        if (node.type.name === 'hardBreak') return true;
+        if (node.type.name !== 'paragraph' || node.textContent.trim() !== '') return false;
+        let onlyBreaks = true;
+        node.forEach(child => { if (child.type.name !== 'hardBreak') onlyBreaks = false; });
+        return onlyBreaks;
+    };
+    let content = slice.content;
+    let openStart = slice.openStart, openEnd = slice.openEnd;
+    let changed = false;
+
+    while (content.childCount > 0 && isEmptyish(content.firstChild)) {
+        if (content.firstChild.type.name === 'paragraph' && openStart > 0) openStart -= 1;
+        content = content.cut(content.firstChild.nodeSize);
+        changed = true;
+    }
+    while (content.childCount > 0 && isEmptyish(content.lastChild)) {
+        if (content.lastChild.type.name === 'paragraph' && openEnd > 0) openEnd -= 1;
+        content = content.cut(0, content.size - content.lastChild.nodeSize);
+        changed = true;
+    }
+    // 整片都是空段落/换行符时不裁剪（保留"粘贴一个空行"的原有行为）
+    if (!changed || content.childCount === 0) return slice;
+    return Object.assign(Object.create(Object.getPrototypeOf(slice)), slice, { content, openStart, openEnd });
+}
+
+    // 整块粘贴（闭合切片）落在段落边界时避免切出多余空行：
+    // - 粘贴到空段落：直接用粘贴内容替换该段落（默认行为会切出上下两个空段）
+    // - 行首/行尾：插到段落之前/之后（默认行为会切出一个空半段）
+    // 行中间的闭合切片粘贴保持默认行为（按块插入、切开当前行）。
+    function pasteAtBlockBoundary(view, _event, slice) {
+        if (!slice || slice.openStart !== 0 || slice.openEnd !== 0) return false;
+        const first = slice.content.firstChild;
+        if (!first || !first.isBlock) return false;
+        const { $from, empty } = view.state.selection;
+        if (!empty || !$from.parent.inlineContent) return false;
+
+        try {
+            if ($from.parent.content.size === 0) {
+                view.dispatch(view.state.tr.replace($from.before(), $from.after(), slice).scrollIntoView());
+                return true;
+            }
+            if ($from.parentOffset === 0) {
+                const pos = $from.before();
+                view.dispatch(view.state.tr.replace(pos, pos, slice).scrollIntoView());
+                return true;
+            }
+            if ($from.parentOffset === $from.parent.content.size) {
+                const pos = $from.after();
+                view.dispatch(view.state.tr.replace(pos, pos, slice).scrollIntoView());
+                return true;
+            }
+        } catch (err) {
+            console.error('粘贴失败:', err);
+        }
+        return false;
+    }
+
+    function initEditor() {
     state.editor = new Editor({
         element: el.editorContainer,
         extensions: [
@@ -439,21 +535,27 @@ function initEditor() {
             VideoNode,
             AudioNode,
             Spoiler,
-            Table.configure({
+            FitWidthTable.configure({
                 resizable: true,
             }),
             TableRow,
-            TableCell,
-            TableHeader,
+            AlignableTableCell,
+            AlignableTableHeader,
             TaskList,
             TaskItem,
         ],
+        editorProps: {
+            transformPasted: trimPastedSlice,
+            handlePaste: pasteAtBlockBoundary,
+        },
         content: '',
         editable: true,
         scrollThreshold: 0,
         scrollMargin: 200,
         onTransaction: () => {
             updateFormatButtonStates();
+            updateTableToolbar();
+            syncFitWidthDom();
         },
         onUpdate: ({ editor }) => {
             state.isDirty = true;
@@ -474,8 +576,15 @@ function initEditor() {
         },
         onSelectionUpdate: () => {
             updateFormatButtonStates();
+            updateTableToolbar();
         },
     });
+
+    // 重新聚焦编辑器时恢复表格工具栏（点击侧边栏等场景会先隐藏）
+    state.editor.on('focus', () => updateTableToolbar());
+
+    window.__editor = state.editor; // 调试钩子（浏览器测试用）
+    window.__state = state;
 
     // 拦截编辑器内链接点击，用系统默认浏览器打开
     el.editorContainer.addEventListener('click', (e) => {
@@ -556,6 +665,7 @@ function closeNote() {
     state.currentNoteName = null;
     state.isDirty = false;
     state.editor.commands.clearContent();
+    hideTableToolbar();
     el.editorContainer.style.display = 'none';
     el.editorEmpty.style.display = '';
     renderFileTree();
@@ -1030,6 +1140,10 @@ function hideContextMenus() {
 document.addEventListener('click', (e) => {
     if (!e.target.closest('#context-menu') && !e.target.closest('#context-menu-folder') && !e.target.closest('#context-menu-media')) {
         hideContextMenus();
+    }
+    // 点击编辑器与表格工具栏以外的区域时，隐藏表格工具栏
+    if (!e.target.closest('#table-toolbar') && !e.target.closest('#editor-container') && !e.target.closest('#editor-toolbar')) {
+        hideTableToolbar();
     }
 });
 
@@ -1588,6 +1702,201 @@ $('#btn-insert-audio').addEventListener('click', async () => {
 });
 
 // ============================================================
+// 表格：插入按钮 + 浮动工具栏
+// ============================================================
+
+// 构建 2×2（首行为表头）的表格节点
+function buildTableNode(schema) {
+    const { table, tableRow, tableHeader, tableCell, paragraph } = schema.nodes;
+    const makeRow = (cellType) => tableRow.create(null, [
+        cellType.create(null, paragraph.create()),
+        cellType.create(null, paragraph.create()),
+    ]);
+    return table.create(null, [makeRow(tableHeader), makeRow(tableCell)]);
+}
+
+$('#btn-insert-table').addEventListener('click', () => {
+    if (!state.currentNote || !state.editor) return;
+    const ed = state.editor;
+    const { $from } = ed.state.selection;
+
+    // 找光标所在的最外层表格：光标已在表格内时直接 insertTable 会嵌套进单元格，
+    // 此时把新表格插到该表格之后
+    let tableDepth = -1;
+    for (let d = 1; d <= $from.depth; d++) {
+        if ($from.node(d).type.name === 'table') tableDepth = d;
+    }
+
+    if (tableDepth === -1) {
+        ed.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run();
+        return;
+    }
+
+    // 新表格起点之后的偏移：+1 进表格、+2 进首行、+3 进首个单元格、+4 进单元格内段落
+    const posAfter = $from.before(tableDepth) + $from.node(tableDepth).nodeSize;
+    ed.chain().focus()
+        .command(({ tr }) => { tr.insert(posAfter, buildTableNode(ed.state.schema)); return true; })
+        .setTextSelection(posAfter + 4)
+        .run();
+});
+
+const tableToolbar = $('#table-toolbar');
+
+function hideTableToolbar() {
+    tableToolbar.style.display = 'none';
+}
+
+// 查找光标所在单元格及所属表格的 DOM 信息；光标不在表格内时返回 null
+function findCurrentCell() {
+    if (!state.editor) return null;
+    const { $from } = state.editor.state.selection;
+    const view = state.editor.view;
+    let cellDom = null, cellNode = null, tableDom = null, tableNode = null, tablePos = null;
+    for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d);
+        if (!cellDom && (node.type.name === 'tableCell' || node.type.name === 'tableHeader')) {
+            const dom = view.nodeDOM($from.before(d));
+            if (dom && dom.tagName) {
+                cellDom = dom;
+                cellNode = node;
+            }
+        } else if (!tableDom && node.type.name === 'table') {
+            const dom = view.nodeDOM($from.before(d));
+            if (dom && dom.tagName) {
+                tableDom = dom.tagName === 'TABLE' ? dom : (dom.querySelector('table') || dom);
+                tableNode = node;
+                tablePos = $from.before(d);
+            }
+        }
+    }
+    if (!cellDom || !tableDom) return null;
+    return { cellDom, cellNode, tableDom, tableNode, tablePos, colIndex: cellDom.cellIndex };
+}
+
+// 光标在表格内时，将浮动工具栏定位到表格上方居中
+function updateTableToolbar() {
+    if (!state.editor || !state.currentNote) { hideTableToolbar(); return; }
+    const cellInfo = findCurrentCell();
+    if (!cellInfo) { hideTableToolbar(); return; }
+
+    // 对齐按钮高亮（未设置属性时视为左对齐）
+    const align = cellInfo.cellNode.attrs.textAlign || 'left';
+    tableToolbar.querySelectorAll('[data-align]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.align === align);
+    });
+    // 宽度自适应按钮高亮
+    const fitBtn = tableToolbar.querySelector('[data-action="fitWidth"]');
+    if (fitBtn) fitBtn.classList.toggle('active', !!cellInfo.tableNode.attrs.fitWidth);
+
+    const rect = cellInfo.tableDom.getBoundingClientRect();
+    if (rect.height === 0 || rect.bottom < 0 || rect.top > window.innerHeight) {
+        hideTableToolbar();
+        return;
+    }
+
+    tableToolbar.style.display = '';
+    const tbRect = tableToolbar.getBoundingClientRect();
+    // 固定在表格左上角：左边缘与表格左边缘对齐
+    let left = Math.max(8, Math.min(rect.left, window.innerWidth - tbRect.width - 8));
+    // 默认在表格上方；空间不足（被标题栏/编辑器工具栏遮挡）时叠在表格上沿
+    const minTop = 80;
+    let top = rect.top - tbRect.height - 6;
+    if (top < minTop) top = Math.max(minTop, rect.top + 6);
+    tableToolbar.style.left = left + 'px';
+    tableToolbar.style.top = top + 'px';
+}
+
+tableToolbar.querySelectorAll('.table-tb-btn').forEach(btn => {
+    // 阻止 mousedown 默认行为，避免点击按钮导致编辑器失焦、光标移出表格
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => {
+        const ed = state.editor;
+        if (!ed || !state.currentNote) return;
+        const action = btn.dataset.action;
+        const commands = {
+            addRowAbove: 'addRowBefore',
+            addRowBelow: 'addRowAfter',
+            deleteRow: 'deleteRow',
+            addColumnLeft: 'addColumnBefore',
+            addColumnRight: 'addColumnAfter',
+            deleteColumn: 'deleteColumn',
+            deleteTable: 'deleteTable',
+        };
+        if (commands[action]) {
+            ed.chain().focus()[commands[action]]().run();
+        } else if (action.startsWith('align')) {
+            alignColumn(action.slice(5).toLowerCase());
+        } else if (action === 'fitWidth') {
+            toggleFitWidth();
+        }
+        // 删除表格后光标已不在表格内，这里会自动隐藏
+        updateTableToolbar();
+    });
+});
+
+// 切换表格宽度自适应（拉伸至编辑区全宽，列宽随窗口变化）
+function toggleFitWidth() {
+    const ed = state.editor;
+    const info = findCurrentCell();
+    if (!ed || !info) return;
+    ed.view.dispatch(ed.state.tr.setNodeMarkup(info.tablePos, null, {
+        ...info.tableNode.attrs,
+        fitWidth: !info.tableNode.attrs.fitWidth,
+    }));
+}
+
+// 将 fitWidth 节点属性同步到表格 DOM。
+// resizable 表格由 prosemirror-tables 的 TableView 节点视图接管 DOM（只更新列宽），
+// 自定义属性不会经 renderHTML 渲染，因此在每次事务后手动同步。
+function syncFitWidthDom() {
+    if (!state.editor) return;
+    state.editor.state.doc.descendants((node, pos) => {
+        if (node.type.name !== 'table') return true;
+        const dom = state.editor.view.nodeDOM(pos);
+        const tableEl = dom && (dom.tagName === 'TABLE' ? dom : dom.querySelector('table'));
+        if (tableEl) {
+            if (node.attrs.fitWidth) tableEl.setAttribute('data-fit-width', 'true');
+            else tableEl.removeAttribute('data-fit-width');
+        }
+        return false;
+    });
+}
+
+// 整列设置对齐（含表头行）；该列已是此对齐时再次点击则取消
+function alignColumn(value) {
+    const ed = state.editor;
+    if (!ed) return;
+    const cellInfo = findCurrentCell();
+    if (!cellInfo) return;
+    const target = cellInfo.cellNode.attrs.textAlign === value ? null : value;
+    const view = ed.view;
+    const tr = ed.state.tr;
+    let changed = false;
+    cellInfo.tableDom.querySelectorAll('tr').forEach((row) => {
+        const cellEl = row.cells[cellInfo.colIndex];
+        if (!cellEl) return;
+        let pos = view.posAtDOM(cellEl, 0);
+        let node = tr.doc.nodeAt(pos);
+        if (!node || (node.type.name !== 'tableCell' && node.type.name !== 'tableHeader')) {
+            // posAtDOM 也可能落在单元格内部（+1），回退到单元格起点
+            node = tr.doc.nodeAt(--pos);
+            if (!node || (node.type.name !== 'tableCell' && node.type.name !== 'tableHeader')) return;
+        }
+        tr.setNodeMarkup(pos, null, { ...node.attrs, textAlign: target });
+        changed = true;
+    });
+    if (changed) view.dispatch(tr);
+}
+
+// 滚动/窗口变化时重新定位表格工具栏
+el.editorWrapper.addEventListener('scroll', () => {
+    if (tableToolbar.style.display !== 'none') updateTableToolbar();
+});
+window.addEventListener('resize', () => {
+    if (tableToolbar.style.display !== 'none') updateTableToolbar();
+});
+
+// ============================================================
 // 键盘快捷键
 // ============================================================
 document.addEventListener('keydown', (e) => {
@@ -1736,6 +2045,13 @@ async function init() {
     initTitlebar();
     initSidebarResizer();
     updateToolbarState();
+
+    // 开发模式（wails dev）在标题栏显示徽标，确认使用的是隔离的测试数据
+    if (App && App.IsDevMode) {
+        App.IsDevMode().then((isDev) => {
+            if (isDev) $('#dev-mode-badge').style.display = '';
+        }).catch(() => {});
+    }
 
     if (App) await refreshFileTree();
 

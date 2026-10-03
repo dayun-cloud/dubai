@@ -35,7 +35,7 @@ func main() {
 		Frameless:                true,
 		EnableDefaultContextMenu: false,
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "dubai-app-single-instance",
+			UniqueId: singleInstanceID(),
 			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
 				runtimeWindowShow()
 			},
@@ -74,6 +74,9 @@ func main() {
 	}
 }
 
+// getWorkspacePath 返回笔记工作区路径。
+// 开发模式（wails dev，带 -tags dev 构建）使用独立的 独白-dev 目录，
+// 确保开发调试永远不会读写到真实笔记数据。
 func getWorkspacePath() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
@@ -83,7 +86,19 @@ func getWorkspacePath() string {
 		}
 		return filepath.Join(filepath.Dir(exePath), "workspace")
 	}
-	return filepath.Join(configDir, "独白", "workspace")
+	rootName := "独白"
+	if isDevBuild {
+		rootName = "独白-dev"
+	}
+	return filepath.Join(configDir, rootName, "workspace")
+}
+
+// singleInstanceID 开发模式使用独立的单实例锁，避免开发实例与正式版互相抢占焦点
+func singleInstanceID() string {
+	if isDevBuild {
+		return "dubai-app-single-instance-dev"
+	}
+	return "dubai-app-single-instance"
 }
 
 func runtimeWindowShow() {

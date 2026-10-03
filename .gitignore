@@ -17,3 +17,6 @@ notpad.txt
 
 # 工作区数据
 workspace
+
+# ZCode 工作区配置
+.zcode/

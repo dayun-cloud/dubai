@@ -55,8 +55,15 @@ func (a *App) startup(ctx context.Context) {
 	os.MkdirAll(a.workspacePath, 0755)
 	os.MkdirAll(filepath.Join(a.workspacePath, "_media"), 0755)
 
+	runtime.LogInfof(a.ctx, "工作区目录: %s (开发模式: %v)", a.workspacePath, isDevBuild)
+
 	// 首次启动时创建使用指南
 	a.createWelcomeGuideIfNeeded()
+
+	// 开发模式：确保存在表格功能测试笔记
+	if isDevBuild {
+		a.createDevTestNoteIfNeeded()
+	}
 }
 
 // domReady is called after front-end resources have been loaded
@@ -96,6 +103,37 @@ func (a *App) createWelcomeGuideIfNeeded() {
 		guidePath := filepath.Join(a.workspacePath, "使用指南.json")
 		os.WriteFile(guidePath, []byte(welcomeJSON), 0644)
 	}
+}
+
+// IsDevMode 前端查询当前是否为开发模式（wails dev），用于显示开发模式标识
+func (a *App) IsDevMode() bool {
+	return isDevBuild
+}
+
+// createDevTestNoteIfNeeded 开发模式下创建表格功能测试笔记（仅当不存在时）
+func (a *App) createDevTestNoteIfNeeded() {
+	testPath := filepath.Join(a.workspacePath, "表格测试.json")
+	if _, err := os.Stat(testPath); err == nil {
+		return
+	}
+
+	// 含对齐示例的 2x2 表格 + 多行文本，便于验证表格工具栏与粘贴行为
+	testJSON := `{"type":"doc","content":[` +
+		`{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"表格功能测试"}]},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"点击表格内任意单元格，上方会出现表格工具栏，可增删行列、整列对齐、删除表格。"}]},` +
+		`{"type":"table","content":[` +
+		`{"type":"tableRow","content":[` +
+		`{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"列一"}]}]},` +
+		`{"type":"tableHeader","attrs":{"textAlign":"center"},"content":[{"type":"paragraph","content":[{"type":"text","text":"列二（已居中）"}]}]}` +
+		`]},` +
+		`{"type":"tableRow","content":[` +
+		`{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"数据 A"}]}]},` +
+		`{"type":"tableCell","attrs":{"textAlign":"center"},"content":[{"type":"paragraph","content":[{"type":"text","text":"数据 B"}]}]}` +
+		`]}]},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"下面几行用于测试粘贴：从外部复制多行文字粘贴到此处，首尾不应多出空行。"}]},` +
+		`{"type":"paragraph"},{"type":"paragraph","content":[{"type":"text","text":"第一行"}]},{"type":"paragraph","content":[{"type":"text","text":"第二行"}]},{"type":"paragraph"}]}`
+
+	os.WriteFile(testPath, []byte(testJSON), 0644)
 }
 
 // ============================================================
